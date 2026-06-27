@@ -39,7 +39,6 @@ import {
   formatCurrency,
   incidents,
   kpis,
-  members,
   navItems,
   NavKey,
   type AuditEvent,
@@ -47,6 +46,7 @@ import {
   type BudgetRecommendation,
   type DocumentRecord,
   type GovernanceCard,
+  type Member,
   type Project,
   type VendorRecord,
   setupChecklist,
@@ -221,6 +221,20 @@ async function runAiTask(
   }
 }
 
+async function authHeaders() {
+  const supabase = getSupabaseBrowserClient();
+  const {
+    data: { session },
+  } = supabase ? await supabase.auth.getSession() : { data: { session: null } };
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+
+  if (session?.access_token) {
+    headers.Authorization = `Bearer ${session.access_token}`;
+  }
+
+  return headers;
+}
+
 function AiResultCard({ state }: { state: AiRunState }) {
   return (
     <div className="rounded-lg border border-indigo-200 bg-white p-4">
@@ -322,7 +336,22 @@ function AuthControl({
 
     setSessionEmail(data.user?.email ?? emailValue);
     setPassword("");
-    setStatus("Signed in; refreshing workspace...");
+    setStatus("Signed in; activating invite...");
+    const acceptHeaders = await authHeaders();
+    const acceptResponse = await fetch("/api/members/accept", {
+      method: "POST",
+      headers: acceptHeaders,
+      body: JSON.stringify({}),
+    });
+    const acceptBody = (await acceptResponse.json().catch(() => ({}))) as { message?: string; error?: string; mode?: string };
+
+    if (!acceptResponse.ok && acceptResponse.status !== 403) {
+      setStatus(acceptBody.error ?? "Invite activation failed");
+      setIsBusy(false);
+      return;
+    }
+
+    setStatus(acceptResponse.ok ? acceptBody.message ?? "Invite activated; refreshing workspace..." : "Signed in; checking active membership...");
     await onSessionChange();
     setIsBusy(false);
   }
@@ -391,6 +420,28 @@ function AuthControl({
       <span className="min-w-32 text-xs text-slate-500" aria-live="polite">
         {status}
       </span>
+    </div>
+  );
+}
+
+function SignedOutWorkspace({ sourceDetail }: { sourceDetail: string }) {
+  return (
+    <div className="mx-auto flex min-h-[60vh] max-w-2xl items-center">
+      <section className="w-full rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
+        <div className="flex h-11 w-11 items-center justify-center rounded-md bg-slate-950 text-white">
+          <LockKeyhole className="h-5 w-5" />
+        </div>
+        <p className="mt-5 text-xs font-semibold uppercase text-slate-500">Invite-only access</p>
+        <h2 className="mt-2 text-2xl font-semibold text-slate-950">Sign in with an active committee account</h2>
+        <p className="mt-3 text-sm leading-6 text-slate-600">
+          {sourceDetail}. The dashboard stays locked until Supabase Auth confirms a matching active member row.
+        </p>
+        <div className="mt-5 grid gap-3 text-sm text-slate-600 sm:grid-cols-3">
+          <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">Pending invites activate after sign-in.</div>
+          <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">Inactive members stay blocked.</div>
+          <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">RLS filters all records after login.</div>
+        </div>
+      </section>
     </div>
   );
 }
@@ -1819,22 +1870,150 @@ function IncidentBlock({ title, items, icon }: { title: string; items: string[];
   );
 }
 
-function MembersView() {
+function MembersView({
+  members,
+  currentMember,
+  onDataRefresh,
+}: {
+  members: Member[];
+  currentMember: StrataAppData["auth"]["member"];
+  onDataRefresh: () => Promise<StrataAppData | null>;
+}) {
+  const [inviteStatus, setInviteStatus] = useState("Invite form ready");
+  const [inviteTone, setInviteTone] = useState<"idle" | "success" | "error" | "loading">("idle");
+  const [isInviting, setIsInviting] = useState(false);
+  const [email, setEmail] = useState("");
+  const [fullName, setFullName] = useState("");
+  const [role, setRole] = useState("member");
+  const [accessLevel, setAccessLevel] = useState("member");
+  const canInvite = Boolean(currentMember && ["admin", "chair", "secretary"].includes(currentMember.role));
+
+  async function submitInvite(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!canInvite) {
+      setInviteStatus("Only admin, chair, or secretary members can invite users");
+      setInviteTone("error");
+      return;
+    }
+
+    setIsInviting(true);
+    setInviteTone("loading");
+    setInviteStatus("Sending invite...");
+
+    try {
+      const response = await fetch("/api/members/invite", {
+        method: "POST",
+        headers: await authHeaders(),
+        body: JSON.stringify({ email, fullName, role, accessLevel }),
+      });
+      const result = (await response.json()) as { message?: string; error?: string };
+
+      if (!response.ok) {
+        throw new Error(result.error ?? "Invite failed");
+      }
+
+      setInviteStatus(result.message ?? "Member invited");
+      setInviteTone("success");
+      setEmail("");
+      setFullName("");
+      setRole("member");
+      setAccessLevel("member");
+      await onDataRefresh();
+    } catch (error) {
+      setInviteStatus(error instanceof Error ? error.message : "Invite failed");
+      setInviteTone("error");
+    } finally {
+      setIsInviting(false);
+    }
+  }
+
   return (
     <div className="space-y-5">
-      <SectionHeader eyebrow="Members" title="Invite-only committee access" />
+      <SectionHeader
+        eyebrow="Members"
+        title="Invite-only committee access"
+        action={currentMember ? <Badge value={`${currentMember.full_name} · ${currentMember.role}`} /> : null}
+      />
+      <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="flex items-center gap-2 text-slate-950">
+          <ShieldCheck className="h-4 w-4" />
+          <h3 className="font-semibold">Invite member</h3>
+        </div>
+        <form onSubmit={submitInvite} className="mt-4 grid gap-3 lg:grid-cols-[1fr_1fr_160px_160px_auto]">
+          <input
+            aria-label="Invite email"
+            value={email}
+            onChange={(event) => setEmail(event.target.value)}
+            placeholder="email@building.example"
+            type="email"
+            disabled={!canInvite || isInviting}
+            className="h-10 rounded-md border border-slate-200 px-3 text-sm outline-none focus:border-slate-400 disabled:bg-slate-50"
+          />
+          <input
+            aria-label="Invite full name"
+            value={fullName}
+            onChange={(event) => setFullName(event.target.value)}
+            placeholder="Full name"
+            disabled={!canInvite || isInviting}
+            className="h-10 rounded-md border border-slate-200 px-3 text-sm outline-none focus:border-slate-400 disabled:bg-slate-50"
+          />
+          <select
+            aria-label="Invite role"
+            value={role}
+            onChange={(event) => setRole(event.target.value)}
+            disabled={!canInvite || isInviting}
+            className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm outline-none focus:border-slate-400 disabled:bg-slate-50"
+          >
+            <option value="member">Member</option>
+            <option value="treasurer">Treasurer</option>
+            <option value="secretary">Secretary</option>
+            <option value="chair">Chair</option>
+            <option value="admin">Admin</option>
+            <option value="strata_manager">Strata manager</option>
+          </select>
+          <select
+            aria-label="Invite access level"
+            value={accessLevel}
+            onChange={(event) => setAccessLevel(event.target.value)}
+            disabled={!canInvite || isInviting}
+            className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm outline-none focus:border-slate-400 disabled:bg-slate-50"
+          >
+            <option value="member">Member</option>
+            <option value="read_only">Read only</option>
+            <option value="limited_admin">Limited admin</option>
+            <option value="admin">Admin</option>
+          </select>
+          <button
+            type="submit"
+            disabled={!canInvite || isInviting}
+            className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-slate-950 px-3 text-sm font-medium text-white disabled:opacity-50"
+          >
+            <Plus className="h-4 w-4" />
+            Invite
+          </button>
+        </form>
+        <div className="mt-3">
+          <StatusMessage
+            tone={canInvite ? inviteTone : "idle"}
+            message={canInvite ? inviteStatus : "Sign in as an admin, chair, or secretary to invite members"}
+          />
+        </div>
+      </section>
       <div className="grid gap-3">
-        {members.map((member) => (
-          <div key={member.name} className="grid gap-3 rounded-lg border border-slate-200 bg-white p-4 shadow-sm sm:grid-cols-[1fr_160px_140px_150px] sm:items-center">
-            <div>
-              <p className="font-semibold text-slate-950">{member.name}</p>
-              <p className="text-sm text-slate-500">{member.role}</p>
-            </div>
-            <Badge value={member.status} />
-            <span className="text-sm text-slate-600">{member.access}</span>
-            <span className="text-sm text-slate-500">{member.lastActive}</span>
+        {members.length ? members.map((member) => (
+          <MemberManagementRow
+            key={`${member.id}-${member.name}-${member.roleValue}-${member.statusValue}-${member.accessValue}`}
+            member={member}
+            canManage={canInvite}
+            isCurrentMember={currentMember?.id === member.id}
+            onDataRefresh={onDataRefresh}
+          />
+        )) : (
+          <div className="rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-600 shadow-sm">
+            No members are visible for this session.
           </div>
-        ))}
+        )}
       </div>
       <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
         <div className="flex items-center gap-2 text-slate-950">
@@ -1854,6 +2033,139 @@ function MembersView() {
           })}
         </div>
       </section>
+    </div>
+  );
+}
+
+function MemberManagementRow({
+  member,
+  canManage,
+  isCurrentMember,
+  onDataRefresh,
+}: {
+  member: Member;
+  canManage: boolean;
+  isCurrentMember: boolean;
+  onDataRefresh: () => Promise<StrataAppData | null>;
+}) {
+  const [fullName, setFullName] = useState(member.name);
+  const [role, setRole] = useState(member.roleValue);
+  const [status, setStatus] = useState(member.statusValue);
+  const [accessLevel, setAccessLevel] = useState(member.accessValue);
+  const [result, setResult] = useState("Ready");
+  const [tone, setTone] = useState<"idle" | "success" | "error" | "loading">("idle");
+  const [isSaving, setIsSaving] = useState(false);
+  const dirty =
+    fullName !== member.name ||
+    role !== member.roleValue ||
+    status !== member.statusValue ||
+    accessLevel !== member.accessValue;
+  const disableSensitiveSelfEdit = isCurrentMember;
+
+  async function saveMember() {
+    if (!canManage) {
+      setResult("Only admin, chair, or secretary members can manage users");
+      setTone("error");
+      return;
+    }
+
+    setIsSaving(true);
+    setTone("loading");
+    setResult("Saving member access...");
+
+    try {
+      const response = await fetch("/api/members/update", {
+        method: "POST",
+        headers: await authHeaders(),
+        body: JSON.stringify({
+          memberId: member.id,
+          fullName,
+          role,
+          status,
+          accessLevel,
+        }),
+      });
+      const body = (await response.json()) as { message?: string; error?: string };
+
+      if (!response.ok) {
+        throw new Error(body.error ?? "Member update failed");
+      }
+
+      setResult(body.message ?? "Member updated");
+      setTone("success");
+      await onDataRefresh();
+    } catch (error) {
+      setResult(error instanceof Error ? error.message : "Member update failed");
+      setTone("error");
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  return (
+    <div className="grid gap-3 rounded-lg border border-slate-200 bg-white p-4 shadow-sm xl:grid-cols-[1fr_150px_150px_150px_auto] xl:items-start">
+      <div>
+        <input
+          aria-label={`Name for ${member.email}`}
+          value={fullName}
+          onChange={(event) => setFullName(event.target.value)}
+          disabled={!canManage || isSaving}
+          className="h-9 w-full rounded-md border border-slate-200 px-2 text-sm font-semibold text-slate-950 outline-none focus:border-slate-400 disabled:border-transparent disabled:bg-white"
+        />
+        <p className="mt-1 truncate text-sm text-slate-500">{member.email}</p>
+        <p className="mt-1 text-xs text-slate-500">{member.lastActive}</p>
+      </div>
+      <select
+        aria-label={`Role for ${member.email}`}
+        value={role}
+        onChange={(event) => setRole(event.target.value)}
+        disabled={!canManage || disableSensitiveSelfEdit || isSaving}
+        className="h-9 rounded-md border border-slate-200 bg-white px-2 text-sm outline-none focus:border-slate-400 disabled:bg-slate-50"
+      >
+        <option value="member">Member</option>
+        <option value="treasurer">Treasurer</option>
+        <option value="secretary">Secretary</option>
+        <option value="chair">Chair</option>
+        <option value="admin">Admin</option>
+        <option value="strata_manager">Strata manager</option>
+      </select>
+      <select
+        aria-label={`Access level for ${member.email}`}
+        value={accessLevel}
+        onChange={(event) => setAccessLevel(event.target.value)}
+        disabled={!canManage || disableSensitiveSelfEdit || isSaving}
+        className="h-9 rounded-md border border-slate-200 bg-white px-2 text-sm outline-none focus:border-slate-400 disabled:bg-slate-50"
+      >
+        <option value="member">Member</option>
+        <option value="read_only">Read only</option>
+        <option value="limited_admin">Limited admin</option>
+        <option value="admin">Admin</option>
+      </select>
+      <select
+        aria-label={`Status for ${member.email}`}
+        value={status}
+        onChange={(event) => setStatus(event.target.value as Member["statusValue"])}
+        disabled={!canManage || disableSensitiveSelfEdit || isSaving}
+        className="h-9 rounded-md border border-slate-200 bg-white px-2 text-sm outline-none focus:border-slate-400 disabled:bg-slate-50"
+      >
+        <option value="active">Active</option>
+        <option value="invited">Invited</option>
+        <option value="suspended">Inactive</option>
+      </select>
+      <div className="space-y-2">
+        <button
+          aria-label={`Save member ${member.email}`}
+          type="button"
+          onClick={saveMember}
+          disabled={!canManage || !dirty || isSaving}
+          className="inline-flex h-9 w-full items-center justify-center gap-2 rounded-md bg-slate-950 px-3 text-sm font-medium text-white disabled:opacity-50"
+        >
+          <Check className="h-4 w-4" />
+          Save
+        </button>
+        <Badge value={status === "active" ? "Active" : status === "invited" ? "Invited" : "Inactive"} />
+        <StatusMessage tone={tone} message={result} />
+      </div>
     </div>
   );
 }
@@ -1920,7 +2232,7 @@ function MainContent({
     case "incidents":
       return <IncidentsView />;
     case "members":
-      return <MembersView />;
+      return <MembersView members={data.members} currentMember={data.auth.member} onDataRefresh={onDataRefresh} />;
     case "activity":
       return <ActivityView activity={data.activity} />;
   }
@@ -2003,8 +2315,10 @@ export function StrataApp({ initialData }: { initialData: StrataAppData }) {
           })}
         </nav>
         <div className="border-t border-slate-200 p-4">
-          <p className="text-sm font-medium text-slate-950">Mock session</p>
-          <p className="text-xs text-slate-500">{buildingContext.authMode}</p>
+          <p className="text-sm font-medium text-slate-950">
+            {data.auth.member?.full_name ?? (data.auth.mode === "fallback" ? "Fallback session" : "Signed out")}
+          </p>
+          <p className="text-xs text-slate-500">{data.auth.member?.role ?? data.sourceDetail}</p>
         </div>
       </aside>
 
@@ -2028,7 +2342,11 @@ export function StrataApp({ initialData }: { initialData: StrataAppData }) {
         </header>
         <main className="px-4 py-6 pb-24 sm:px-6 lg:pb-8">
           <div className="mb-4 text-xs text-slate-500">{refreshStatus}</div>
-          <MainContent active={active} go={setActive} data={data} onDataRefresh={refreshData} />
+          {data.auth.mode === "signed-out" ? (
+            <SignedOutWorkspace sourceDetail={data.sourceDetail} />
+          ) : (
+            <MainContent active={active} go={setActive} data={data} onDataRefresh={refreshData} />
+          )}
         </main>
       </div>
 

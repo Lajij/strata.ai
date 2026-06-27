@@ -187,10 +187,15 @@ export interface Incident {
 }
 
 export interface Member {
+  id: string;
+  email: string;
   name: string;
   role: string;
-  status: "Active" | "Invited";
+  roleValue: string;
+  status: "Active" | "Invited" | "Inactive";
+  statusValue: "active" | "invited" | "suspended";
   access: string;
+  accessValue: string;
   lastActive: string;
 }
 
@@ -224,6 +229,9 @@ export const statusTone: Record<string, StatusTone> = {
   "Needs extraction": "amber",
   "Markdown ready": "blue",
   "Review required": "red",
+  Active: "green",
+  Invited: "amber",
+  Inactive: "slate",
   "At risk": "red",
   "On track": "green",
   "Needs decision": "amber",
@@ -497,11 +505,11 @@ export const incidents: Incident[] = [
 ];
 
 export const members: Member[] = [
-  { name: "Ric Spooner", role: "Chair", status: "Active", access: "Admin", lastActive: "Today" },
-  { name: "JJ Lecocq", role: "Committee member", status: "Active", access: "Member", lastActive: "Today" },
-  { name: "Luke Horton", role: "Committee member", status: "Active", access: "Member", lastActive: "Today" },
-  { name: "Deborah Frack", role: "Secretary", status: "Active", access: "Admin", lastActive: "Yesterday" },
-  { name: "Ben Pattinson", role: "Strata manager", status: "Invited", access: "Limited admin", lastActive: "Invite sent" },
+  { id: "fallback-ric", email: "ric@example.com", name: "Ric Spooner", role: "Chair", roleValue: "chair", status: "Active", statusValue: "active", access: "Admin", accessValue: "admin", lastActive: "Today" },
+  { id: "fallback-jj", email: "jj@example.com", name: "JJ Lecocq", role: "Committee member", roleValue: "member", status: "Active", statusValue: "active", access: "Member", accessValue: "member", lastActive: "Today" },
+  { id: "fallback-luke", email: "luke@example.com", name: "Luke Horton", role: "Committee member", roleValue: "member", status: "Active", statusValue: "active", access: "Member", accessValue: "member", lastActive: "Today" },
+  { id: "fallback-deborah", email: "deborah@example.com", name: "Deborah Frack", role: "Secretary", roleValue: "secretary", status: "Active", statusValue: "active", access: "Admin", accessValue: "admin", lastActive: "Yesterday" },
+  { id: "fallback-ben", email: "ben@example.com", name: "Ben Pattinson", role: "Strata manager", roleValue: "strata_manager", status: "Invited", statusValue: "invited", access: "Limited admin", accessValue: "limited_admin", lastActive: "Invite sent" },
 ];
 
 export const activity: AuditEvent[] = [

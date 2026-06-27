@@ -44,17 +44,52 @@ export interface Database {
         address: string | null;
         created_at: string;
       }>;
-      members: Table<{
-        id: string;
-        committee_id: string;
-        user_id: string | null;
-        email: string;
-        full_name: string;
-        role: MemberRole;
-        status: MemberStatus;
-        invited_by: string | null;
-        created_at: string;
-      }>;
+      profiles: Table<
+        {
+          id: string;
+          full_name: string;
+          email: string;
+          created_at: string;
+        },
+        {
+          id: string;
+          full_name: string;
+          email: string;
+          created_at?: string;
+        }
+      >;
+      members: Table<
+        {
+          id: string;
+          committee_id: string;
+          user_id: string | null;
+          email: string;
+          full_name: string;
+          role: MemberRole;
+          status: MemberStatus;
+          access_level: string;
+          invited_by: string | null;
+          invited_at: string | null;
+          invited_by_member_id: string | null;
+          accepted_at: string | null;
+          created_at: string;
+        },
+        {
+          id?: string;
+          committee_id: string;
+          user_id?: string | null;
+          email: string;
+          full_name: string;
+          role?: MemberRole;
+          status?: MemberStatus;
+          access_level?: string;
+          invited_by?: string | null;
+          invited_at?: string | null;
+          invited_by_member_id?: string | null;
+          accepted_at?: string | null;
+          created_at?: string;
+        }
+      >;
       cards: Table<
         {
           id: string;

@@ -4,6 +4,7 @@ import {
   budgetLines as fallbackBudgetLines,
   cards as fallbackCards,
   documents as fallbackDocuments,
+  members as fallbackMembers,
   projects as fallbackProjects,
   type AuditEvent,
   type BudgetLine,
@@ -13,6 +14,7 @@ import {
   type DocumentRecord,
   type GovernanceCard,
   type InvoiceSummary,
+  type Member,
   type Project,
   type QuoteReviewSummary,
   type VendorRecord,
@@ -35,10 +37,15 @@ export type DataSource = "fallback" | "supabase";
 export interface StrataAppData {
   source: DataSource;
   sourceDetail: string;
+  auth: {
+    mode: "fallback" | "signed-out" | "active";
+    member: CurrentMember | null;
+  };
   cards: GovernanceCard[];
   documents: DocumentRecord[];
   projects: Project[];
   vendors: VendorRecord[];
+  members: Member[];
   activity: AuditEvent[];
   budgetLines: BudgetLine[];
   budgetRecommendation: BudgetRecommendation;
@@ -50,6 +57,8 @@ export interface CurrentMember {
   role: string;
   full_name: string;
   user_id: string | null;
+  email: string;
+  access_level: string;
 }
 
 type AppSupabase = SupabaseClient<Database>;
@@ -189,6 +198,18 @@ type QuoteReviewQueryRow = {
   approval_conditions: string[];
 };
 
+type MemberQueryRow = {
+  id: string;
+  email: string;
+  full_name: string;
+  role: string;
+  status: "active" | "invited" | "suspended";
+  access_level: string | null;
+  invited_at: string | null;
+  accepted_at: string | null;
+  created_at: string;
+};
+
 type ExpenseQueryRow = {
   budget_line_id: string | null;
   amount: number;
@@ -213,10 +234,15 @@ type VariationQueryRow = {
 export const fallbackAppData: StrataAppData = {
   source: "fallback",
   sourceDetail: "Seeded local data",
+  auth: {
+    mode: "fallback",
+    member: null,
+  },
   cards: fallbackCards,
   documents: fallbackDocuments,
   projects: fallbackProjects,
   vendors: [],
+  members: fallbackMembers,
   activity: fallbackActivity,
   budgetLines: fallbackBudgetLines,
   budgetRecommendation: {
@@ -449,6 +475,45 @@ function mapQuoteReviews(
   }));
 }
 
+function titleCase(value: string) {
+  return value
+    .split(/[_\s-]+/)
+    .filter(Boolean)
+    .map((part) => part[0].toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function mapMemberStatus(status: MemberQueryRow["status"]): Member["status"] {
+  if (status === "active") {
+    return "Active";
+  }
+
+  if (status === "invited") {
+    return "Invited";
+  }
+
+  return "Inactive";
+}
+
+function mapMembers(rows: MemberQueryRow[]): Member[] {
+  return rows.map((row) => ({
+    id: row.id,
+    email: row.email,
+    name: row.full_name,
+    role: titleCase(row.role),
+    roleValue: row.role,
+    status: mapMemberStatus(row.status),
+    statusValue: row.status,
+    access: titleCase(row.access_level ?? "member"),
+    accessValue: row.access_level ?? "member",
+    lastActive: row.accepted_at
+      ? `Accepted ${formatDate(row.accepted_at)}`
+      : row.invited_at
+        ? `Invited ${formatDate(row.invited_at)}`
+        : `Created ${formatDate(row.created_at)}`,
+  }));
+}
+
 function mapProject(
   row: ProjectQueryRow,
   allowance: BudgetAllowanceQueryRow | undefined,
@@ -577,7 +642,7 @@ export async function getCurrentMember(supabase: AppSupabase): Promise<CurrentMe
 
   const { data, error } = await supabase
     .from("members")
-    .select("id, committee_id, role, full_name, user_id")
+    .select("id, committee_id, role, full_name, user_id, email, access_level")
     .eq("user_id", user.id)
     .eq("status", "active")
     .limit(1)
@@ -601,8 +666,24 @@ export async function getStrataAppData(accessToken?: string): Promise<StrataAppD
 
   if (!member) {
     return {
-      ...fallbackAppData,
-      sourceDetail: "Supabase configured; using local fallback until an authenticated active member session exists",
+      source: "supabase",
+      sourceDetail: "Sign in with an active committee account to load Supabase workspace data",
+      auth: {
+        mode: "signed-out",
+        member: null,
+      },
+      cards: [],
+      documents: [],
+      projects: [],
+      vendors: [],
+      members: [],
+      activity: [],
+      budgetLines: [],
+      budgetRecommendation: {
+        summary: "Sign in to load budget recommendations from visible strata records.",
+        citations: [],
+        disclaimer: "General information only. Not legal, financial, accounting, engineering, or strata management advice.",
+      },
     };
   }
 
@@ -621,6 +702,7 @@ export async function getStrataAppData(accessToken?: string): Promise<StrataAppD
     vendorsResult,
     invoicesResult,
     quoteReviewsResult,
+    membersResult,
   ] = await Promise.all([
     supabase
       .from("cards")
@@ -684,6 +766,12 @@ export async function getStrataAppData(accessToken?: string): Promise<StrataAppD
       .select("id,card_id,document_id,overall_risk,missing_inclusions,risky_exclusions,clarification_questions,approval_conditions")
       .eq("committee_id", member.committee_id)
       .limit(80),
+    supabase
+      .from("members")
+      .select("id,email,full_name,role,status,access_level,invited_at,accepted_at,created_at")
+      .eq("committee_id", member.committee_id)
+      .order("full_name")
+      .limit(100),
   ]);
 
   if (
@@ -700,7 +788,8 @@ export async function getStrataAppData(accessToken?: string): Promise<StrataAppD
     attachmentsResult.error ||
     vendorsResult.error ||
     invoicesResult.error ||
-    quoteReviewsResult.error
+    quoteReviewsResult.error ||
+    membersResult.error
   ) {
     return {
       ...fallbackAppData,
@@ -722,6 +811,7 @@ export async function getStrataAppData(accessToken?: string): Promise<StrataAppD
   const supabaseVendors = (vendorsResult.data ?? []) as unknown as VendorQueryRow[];
   const supabaseInvoices = (invoicesResult.data ?? []) as unknown as InvoiceQueryRow[];
   const supabaseQuoteReviews = (quoteReviewsResult.data ?? []) as unknown as QuoteReviewQueryRow[];
+  const supabaseMembers = (membersResult.data ?? []) as unknown as MemberQueryRow[];
   const activity = supabaseActivity.map(mapAudit);
   const cards = supabaseCards.map((card) => {
     const mapped = mapCard(card, supabaseDocuments, supabaseAttachments);
@@ -760,12 +850,17 @@ export async function getStrataAppData(accessToken?: string): Promise<StrataAppD
   return {
     source: "supabase",
     sourceDetail: "Supabase RLS-backed session data",
+    auth: {
+      mode: "active",
+      member,
+    },
     cards: supabaseCards.length ? cards : fallbackCards,
     documents: supabaseDocuments.length
       ? supabaseDocuments.map((document) => mapDocument(document, supabaseCards, supabaseProjects, supabaseAttachments))
       : fallbackDocuments,
     projects: projects.length ? projects : fallbackProjects,
     vendors: supabaseVendors.length ? mapVendors(supabaseVendors) : [],
+    members: supabaseMembers.length ? mapMembers(supabaseMembers) : [],
     activity: activity.length ? activity : fallbackActivity,
     budgetLines: budgetLines.length ? budgetLines : fallbackBudgetLines,
     budgetRecommendation,
