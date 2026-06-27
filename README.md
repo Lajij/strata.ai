@@ -130,9 +130,10 @@ npm run build
 
 `npm run verify:production-ready` checks local production readiness without deploying: Supabase project URL, anon/service env presence, service-role absence from browser/app code, AI fallback/live mode support, Storage bucket access, seeded member login, and RLS-backed reads.
 
-To run browser AI verification against a Vercel preview or another deployed URL, build/deploy that target separately and run:
+To run browser verification against a Vercel preview or another deployed URL, build/deploy that target separately and run:
 
 ```bash
+STRATA_BROWSER_URL=https://your-preview-url.example npm run verify:auth-browser
 STRATA_BROWSER_URL=https://your-preview-url.example npm run verify:ai-browser
 ```
 
@@ -149,9 +150,9 @@ Before production promotion:
 - Vercel env vars: set `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, AI Gateway credentials (`VERCEL_OIDC_TOKEN` via `vercel env pull` locally or Vercel-managed OIDC in deployment), and any `STRATA_*` non-secret defaults needed for verification.
 - Local-only secrets: keep `SUPABASE_SERVICE_ROLE_KEY` only in local `.env.local` or secure operator tooling for seed/verification scripts; never add it as a public browser env var.
 - Supabase setup: apply migrations, confirm `strata-documents` Storage bucket exists and is private, run `npm run supabase:seed-live`, and run `npm run seed:law`.
-- Access proof: run `npm run verify:production-ready`, `npm run verify:security`, `npm run verify:documents`, `npm run verify:ai`, `npm run verify:ai-observability`, and `npm run verify:ai-browser`.
+- Access proof: run `npm run verify:production-ready`, `npm run verify:security`, `npm run verify:auth-flow`, `npm run verify:member-management`, `npm run verify:documents`, `npm run verify:ai`, `npm run verify:ai-observability`, `npm run verify:auth-browser`, and `npm run verify:ai-browser`.
 - Rollback/export: use `npm run export:ai-audit` for AI audit metadata and keep Supabase point-in-time recovery/export procedures ready before destructive changes.
-- Preview proof: run `STRATA_BROWSER_URL=<preview-url> npm run verify:ai-browser` before any production promotion.
+- Preview proof: run `STRATA_BROWSER_URL=<preview-url> npm run verify:auth-browser` and `STRATA_BROWSER_URL=<preview-url> npm run verify:ai-browser` before any production promotion.
 
 ## First Production Gaps
 
