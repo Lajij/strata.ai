@@ -1,3 +1,4 @@
+import { resolveServiceKey } from "./service-key.mjs";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { createClient } from "@supabase/supabase-js";
@@ -12,15 +13,18 @@ loadEnv(".env.local");
 loadEnv(".env");
 
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const anonKey =
+  process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ??
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+const serviceKey =
+  resolveServiceKey();
 const adminEmail = process.env.STRATA_ADMIN_EMAIL ?? "strata.admin@example.com";
 const adminPassword = process.env.STRATA_ADMIN_PASSWORD ?? "StrataAdmin123!";
 const memberEmail = process.env.STRATA_MEMBER_EMAIL ?? "strata.member@example.com";
 const memberPassword = process.env.STRATA_MEMBER_PASSWORD ?? "StrataMember123!";
 
 if (!url || !anonKey || !serviceKey) {
-  throw new Error("Set NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY, and SUPABASE_SERVICE_ROLE_KEY.");
+  throw new Error("Set NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY, and SUPABASE_SECRET_KEY.");
 }
 
 const service = createClient(url, serviceKey, {

@@ -39,8 +39,9 @@ cp .env.example .env.local
 Supabase:
 
 - `NEXT_PUBLIC_SUPABASE_URL`
-- `NEXT_PUBLIC_SUPABASE_ANON_KEY`
-- `SUPABASE_SERVICE_ROLE_KEY` for local seeding and live RLS verification only. Never expose it in browser code.
+- `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` (legacy `NEXT_PUBLIC_SUPABASE_ANON_KEY` remains a temporary fallback)
+- `SUPABASE_SECRET_KEY` for local seeding and live RLS verification only (legacy `SUPABASE_SERVICE_ROLE_KEY` remains a temporary fallback). Never expose either server key in browser code.
+- `STRATA_EVE_APPROVER_USER_ID` is the Supabase Auth user UUID of the repository operator/owner. Eve draft writes fail closed when it is absent or does not match the authenticated active member.
 - `STRATA_ADMIN_EMAIL` / `STRATA_ADMIN_PASSWORD`
 - `STRATA_MEMBER_EMAIL` / `STRATA_MEMBER_PASSWORD`
 
@@ -52,7 +53,9 @@ Vercel AI Gateway:
 
 When Gateway credentials are absent, `/api/ai/[task]` returns safe mock responses instead of failing local development.
 
-When Supabase env vars are absent, the app uses seeded fallback data and the writable workflow API returns mock success responses. When Supabase env vars and an active authenticated member session are present, reads and writes use the anon key and rely on RLS.
+When Supabase env vars are absent, the app uses seeded fallback data and the writable workflow API returns mock success responses. When Supabase env vars and an active authenticated member session are present, reads and writes use the publishable key and rely on RLS.
+
+The Eve agent exposes four scoped read tools and two draft-only write tools. Every draft write requires the configured operator's approval on every call, revalidates the active member after approval, persists only `status: "draft"`, and records audit evidence. Eve has no publish, send, activate, update, or delete tool.
 
 ## Supabase
 
@@ -77,14 +80,14 @@ Important security note: AI routes must only receive context after server-side v
 Live setup path:
 
 1. Apply `supabase/migrations/202606250001_initial_strata_governance.sql` to the confirmed Supabase development project or branch.
-2. Put the project URL, anon key, and service role key in `.env.local`.
+2. Put the project URL, publishable key, and secret key in `.env.local`.
 3. Run:
 
 ```bash
 npm run supabase:seed-live
 ```
 
-The seed script creates/updates one admin and one ordinary member, ties both users to the `members` table, seeds visible and hidden building records, then signs in with the anon key to prove:
+The seed script creates/updates one admin and one ordinary member, ties both users to the `members` table, seeds visible and hidden building records, then signs in with the publishable key to prove:
 
 - Admin can see admin-only records.
 - Ordinary member can see visible records.
@@ -128,14 +131,17 @@ npm run build
 
 `npm run verify:security` checks the migration for RLS on key workflow tables, verifies hidden card/message/document/audit policy guards, and validates the fallback AI-context visibility model.
 
-`npm run verify:production-ready` checks local production readiness without deploying: Supabase project URL, anon/service env presence, service-role absence from browser/app code, AI fallback/live mode support, Storage bucket access, seeded member login, and RLS-backed reads.
+`npm run verify:production-ready` checks local production readiness without deploying: Supabase project URL, publishable/secret env presence, server-key absence from browser/app code, AI fallback/live mode support, Storage bucket access, seeded member login, and RLS-backed reads.
 
 To run browser verification against a Vercel preview or another deployed URL, build/deploy that target separately and run:
 
 ```bash
 STRATA_BROWSER_URL=https://your-preview-url.example npm run verify:auth-browser
+STRATA_BROWSER_URL=https://your-preview-url.example npm run verify:recovery-browser
 STRATA_BROWSER_URL=https://your-preview-url.example npm run verify:ai-browser
 ```
+
+`verify:recovery-browser` uses the server-side admin API to generate a one-time recovery link for a disposable active member, so it neither sends nor reads mailbox messages. Supabase Auth must allow the Preview's fixed `/recover` callback URL. The verifier changes only the disposable user's password and independently removes its member and Auth records afterward.
 
 For UI QA, run the dev server and check desktop and mobile layouts:
 
@@ -147,12 +153,12 @@ npm run dev
 
 Before production promotion:
 
-- Vercel env vars: set `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, AI Gateway credentials (`VERCEL_OIDC_TOKEN` via `vercel env pull` locally or Vercel-managed OIDC in deployment), and any `STRATA_*` non-secret defaults needed for verification.
-- Local-only secrets: keep `SUPABASE_SERVICE_ROLE_KEY` only in local `.env.local` or secure operator tooling for seed/verification scripts; never add it as a public browser env var.
+- Vercel env vars: set `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`, and `STRATA_AI_RELEASE_MODE=fallback` for the signed v1 release. Live Gateway is opt-in only with the exact value `live` plus credentials (`VERCEL_OIDC_TOKEN` via `vercel env pull` locally or Vercel-managed OIDC in deployment). Keep any remaining `STRATA_*` defaults non-secret.
+- Local-only secrets: keep `SUPABASE_SECRET_KEY` only in local `.env.local` or secure operator tooling for seed/verification scripts; never add it as a public browser env var.
 - Supabase setup: apply migrations, confirm `strata-documents` Storage bucket exists and is private, run `npm run supabase:seed-live`, and run `npm run seed:law`.
-- Access proof: run `npm run verify:production-ready`, `npm run verify:security`, `npm run verify:auth-flow`, `npm run verify:member-management`, `npm run verify:documents`, `npm run verify:ai`, `npm run verify:ai-observability`, `npm run verify:auth-browser`, and `npm run verify:ai-browser`.
+- Access proof: run `npm run verify:production-ready`, `npm run verify:security`, `npm run verify:auth-flow`, `npm run verify:member-management`, `npm run verify:documents`, `npm run verify:ai`, `npm run verify:ai-observability`, `npm run verify:auth-browser`, `npm run verify:recovery-browser`, and `npm run verify:ai-browser`.
 - Rollback/export: use `npm run export:ai-audit` for AI audit metadata and keep Supabase point-in-time recovery/export procedures ready before destructive changes.
-- Preview proof: run `STRATA_BROWSER_URL=<preview-url> npm run verify:auth-browser` and `STRATA_BROWSER_URL=<preview-url> npm run verify:ai-browser` before any production promotion.
+- Preview proof: run `STRATA_BROWSER_URL=<preview-url> npm run verify:auth-browser`, `STRATA_BROWSER_URL=<preview-url> npm run verify:recovery-browser`, and `STRATA_BROWSER_URL=<preview-url> npm run verify:ai-browser` before any production promotion.
 
 ## First Production Gaps
 

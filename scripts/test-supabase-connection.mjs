@@ -1,3 +1,4 @@
+import { resolveServiceKey } from "./service-key.mjs";
 import { existsSync, readFileSync } from "node:fs";
 import { createClient } from "@supabase/supabase-js";
 
@@ -19,8 +20,8 @@ function loadEnv(file) {
 
 const env = { ...loadEnv(".env.local"), ...process.env };
 const url = env.NEXT_PUBLIC_SUPABASE_URL;
-const anonKey = env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-const serviceRoleKey = env.SUPABASE_SERVICE_ROLE_KEY;
+const anonKey = env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ?? env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+const serviceRoleKey = resolveServiceKey(env);
 
 function present(value) {
   return Boolean(value) && !value.includes("your-") && !value.includes("...");

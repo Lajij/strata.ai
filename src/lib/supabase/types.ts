@@ -118,6 +118,18 @@ export interface Database {
           updated_at?: string;
         }
       >;
+      card_access: Table<
+        {
+          card_id: string;
+          member_id: string;
+          created_at: string;
+        },
+        {
+          card_id: string;
+          member_id: string;
+          created_at?: string;
+        }
+      >;
       messages: Table<
         {
           id: string;

@@ -1,3 +1,4 @@
+import { resolveServiceKey } from "./service-key.mjs";
 import { existsSync, readFileSync, unlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -97,14 +98,19 @@ assert(routeSource.includes("sanitizeErrorMessage"), "AI route must sanitize err
 assert(routeSource.includes("promptHash(prompt)"), "AI route must store prompt hashes, not raw prompts");
 assert(!routeSource.includes("SUPABASE_SERVICE_ROLE_KEY"), "AI route must not use service-role key");
 assert(!exportSource.includes("SUPABASE_SERVICE_ROLE_KEY"), "AI audit export must use Auth/RLS, not service-role key");
+assert(!routeSource.includes("SUPABASE_SECRET_KEY"), "AI route must not use secret key");
+assert(!exportSource.includes("SUPABASE_SECRET_KEY"), "AI audit export must use Auth/RLS, not secret key");
 assert(exportSource.includes("access_model"), "AI audit export must describe the RLS access model");
 
 loadEnv(".env.local");
 loadEnv(".env");
 
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const anonKey =
+  process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ??
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+const serviceKey =
+  resolveServiceKey();
 
 if (url && anonKey && serviceKey) {
   const service = createClient(url, serviceKey, {
@@ -161,7 +167,7 @@ if (url && anonKey && serviceKey) {
   assert(visible.input_record_count === 2, "Observable output context count was not stored");
   assert(visible.citation_count === 1, "Observable output citation count was not stored");
   assert(visible.created_mode === "error-fallback", "Observable output mode was not stored");
-  assert(!/eyJ|service_role|SUPABASE_SERVICE_ROLE_KEY/.test(visible.error_message ?? ""), "Error metadata appears unsanitized");
+  assert(!/eyJ|service_role|SUPABASE_(?:SERVICE_ROLE|SECRET)_KEY/.test(visible.error_message ?? ""), "Error metadata appears unsanitized");
 
   const exportPath = join(tmpdir(), `strata-ai-audit-${Date.now()}.json`);
   const exportRun = spawnSync(process.execPath, ["scripts/export-ai-audit-pack.mjs"], {

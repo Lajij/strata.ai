@@ -1,3 +1,4 @@
+import { resolveServiceKey } from "./service-key.mjs";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { createClient } from "@supabase/supabase-js";
@@ -22,13 +23,16 @@ loadEnv(".env.local");
 loadEnv(".env");
 
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const anonKey =
+  process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ??
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+const serviceKey =
+  resolveServiceKey();
 const memberEmail = process.env.STRATA_MEMBER_EMAIL ?? "strata.member@example.com";
 const memberPassword = process.env.STRATA_MEMBER_PASSWORD ?? "StrataMember123!";
 
 if (!url || !anonKey || !serviceKey) {
-  throw new Error("Set NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY, and SUPABASE_SERVICE_ROLE_KEY.");
+  throw new Error("Set NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY, and SUPABASE_SECRET_KEY.");
 }
 
 const admin = createClient(url, serviceKey, {
@@ -96,9 +100,29 @@ async function signInClient() {
 }
 
 async function cleanup() {
-  await must("attachment cleanup", admin.from("attachments").delete().in("id", [VISIBLE_ATTACHMENT_ID, PENDING_ATTACHMENT_ID, HIDDEN_ATTACHMENT_ID]));
-  await must("document cleanup", admin.from("documents").delete().in("id", [VISIBLE_DOC_ID, PENDING_DOC_ID, HIDDEN_DOC_ID]));
-  await admin.storage.from(BUCKET).remove([VISIBLE_OBJECT_PATH, PENDING_OBJECT_PATH, HIDDEN_OBJECT_PATH]);
+  const failures = [];
+
+  try {
+    await must("attachment cleanup", admin.from("attachments").delete().in("id", [VISIBLE_ATTACHMENT_ID, PENDING_ATTACHMENT_ID, HIDDEN_ATTACHMENT_ID]));
+  } catch (error) {
+    failures.push(error);
+  }
+
+  try {
+    await must("document cleanup", admin.from("documents").delete().in("id", [VISIBLE_DOC_ID, PENDING_DOC_ID, HIDDEN_DOC_ID]));
+  } catch (error) {
+    failures.push(error);
+  }
+
+  try {
+    await must("storage cleanup", admin.storage.from(BUCKET).remove([VISIBLE_OBJECT_PATH, PENDING_OBJECT_PATH, HIDDEN_OBJECT_PATH]));
+  } catch (error) {
+    failures.push(error);
+  }
+
+  if (failures.length) {
+    throw new AggregateError(failures, "Document workflow cleanup failed");
+  }
 }
 
 await cleanup();
@@ -107,6 +131,7 @@ const memberClient = await signInClient();
 const visibleText = "Visible AGM minute extract for document workflow verification.";
 const visibleMarkdown = `# Visible document workflow verification\n\n${visibleText}`;
 
+try {
 await must(
   "member upload visible storage object",
   memberClient.storage.from(BUCKET).upload(VISIBLE_OBJECT_PATH, new Blob([visibleText], { type: "text/plain" }), {
@@ -345,8 +370,9 @@ assert(!aiDocs.some((document) => document.id === HIDDEN_DOC_ID), "Member AI doc
 assert(aiDocs.some((document) => document.id === VISIBLE_DOC_ID && document.markdown_path), "AI document context lacks visible citation fields");
 assert(aiDocs.some((document) => document.id === PENDING_DOC_ID && document.storage_path && document.markdown_path), "AI document context lacks pending extraction citation fields");
 assert(hiddenDownload.error, "Member can download hidden storage object");
-
-await cleanup();
+} finally {
+  await cleanup();
+}
 
 console.log(
   JSON.stringify(

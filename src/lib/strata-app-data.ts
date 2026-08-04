@@ -71,10 +71,12 @@ type MessageRow = {
 };
 
 type VoteRow = {
+  id: string;
   vote: VoteValue;
 };
 
 type ApprovalConditionRow = {
+  id: string;
   condition_text: string;
   status: string;
 };
@@ -211,11 +213,13 @@ type MemberQueryRow = {
 };
 
 type ExpenseQueryRow = {
+  id: string;
   budget_line_id: string | null;
   amount: number;
 };
 
 type MilestoneQueryRow = {
+  id: string;
   project_id: string;
   label: string;
   planned_on: string | null;
@@ -354,9 +358,25 @@ function mapCard(row: CardQueryRow, documents: DocumentQueryRow[], attachments: 
       const document = documents.find((item) => item.id === attachment.document_id);
       return document?.title ?? attachment.file_name;
     });
+  const sourceRefs = uniqueStrings([
+    `card:${row.id}`,
+    proposal?.id ? `proposal:${proposal.id}` : null,
+    ...(proposal?.votes ?? []).map((vote) => `vote:${vote.id}`),
+    ...(proposal?.approval_conditions ?? []).map(
+      (condition) => `condition:${condition.id}`,
+    ),
+    ...messages.map((message) => `message:${message.id}`),
+    ...attachments
+      .filter((attachment) => attachment.card_id === row.id)
+      .flatMap((attachment) => [
+        `attachment:${attachment.id}`,
+        attachment.document_id ? `document:${attachment.document_id}` : null,
+      ]),
+  ]);
 
   return {
     id: row.id,
+    sourceRefs,
     title: row.title,
     type: cardTypeMap[row.type],
     status: cardStatusMap[row.status],
@@ -411,9 +431,17 @@ function mapDocument(
     storageObjectPath ? `storage:${storageObjectPath}` : null,
     linkedAttachment?.file_name,
   ]);
+  const sourceRefs = uniqueStrings([
+    `document:${row.id}`,
+    linkedAttachment ? `attachment:${linkedAttachment.id}` : null,
+    linkedCard ? `card:${linkedCard.id}` : null,
+    linkedProject ? `project:${linkedProject.id}` : null,
+    ...citations,
+  ]);
 
   return {
     id: row.id,
+    sourceRefs,
     name: row.title,
     type: row.document_type,
     date: row.source_date ?? "Not dated",
@@ -526,18 +554,31 @@ function mapProject(
   vendors: VendorQueryRow[],
   cards: CardQueryRow[],
 ): Project {
-  const evidence = documents
-    .filter((document) => {
-      const metadata = recordFromJson(document.metadata);
-      return stringFromRecord(metadata, "linked_project_id") === row.id;
-    })
-    .map((document) => {
+  const projectDocuments = documents.filter((document) => {
+    const metadata = recordFromJson(document.metadata);
+    return stringFromRecord(metadata, "linked_project_id") === row.id;
+  });
+  const projectInvoices = invoices.filter((invoice) => invoice.project_id === row.id);
+  const projectQuoteReviews = quoteReviews.filter((review) => {
+    const card = cards.find((item) => item.id === review.card_id);
+    return card?.linked_project_id === row.id || projectDocuments.some((document) => document.id === review.document_id);
+  });
+  const evidence = projectDocuments.map((document) => {
       const attachment = attachments.find((item) => item.document_id === document.id);
       return attachment?.file_name ?? document.title;
     });
 
   return {
     id: row.id,
+    sourceRefs: uniqueStrings([
+      `project:${row.id}`,
+      allowance ? `budget_allowance:${allowance.id}` : null,
+      ...milestones.map((milestone) => `project_milestone:${milestone.id}`),
+      ...variations.map((variation) => `variation:${variation.id}`),
+      ...projectDocuments.map((document) => `document:${document.id}`),
+      ...projectInvoices.map((invoice) => `invoice:${invoice.id}`),
+      ...projectQuoteReviews.map((review) => `quote_review:${review.id}`),
+    ]),
     name: row.name,
     status: projectStatusMap[row.status],
     plannedScope: row.planned_scope,
@@ -558,23 +599,8 @@ function mapProject(
       amount: variation.amount,
       status: variation.status,
     })),
-    invoices: mapInvoices(
-      invoices.filter((invoice) => invoice.project_id === row.id),
-      vendors,
-      documents,
-      cards,
-    ),
-    quoteReviews: mapQuoteReviews(
-      quoteReviews.filter((review) => {
-        const card = cards.find((item) => item.id === review.card_id);
-        return card?.linked_project_id === row.id || documents.some((document) => {
-          const metadata = recordFromJson(document.metadata);
-          return document.id === review.document_id && stringFromRecord(metadata, "linked_project_id") === row.id;
-        });
-      }),
-      documents,
-      cards,
-    ),
+    invoices: mapInvoices(projectInvoices, vendors, documents, cards),
+    quoteReviews: mapQuoteReviews(projectQuoteReviews, documents, cards),
     evidence: uniqueStrings(evidence),
     aiSummary:
       "Supabase project summary uses visible project, allowance, variation, milestone, and invoice records only. Verify figures against official strata accounts before committee decisions.",
@@ -589,12 +615,19 @@ function mapBudgetLines(
 ): BudgetLine[] {
   return lines.map((line) => {
     const lineAllowances = allowances.filter((allowance) => allowance.budget_line_id === line.id);
+    const lineExpenses = expenses.filter((expense) => expense.budget_line_id === line.id);
     const committed = lineAllowances.reduce((sum, allowance) => sum + allowance.committed_amount, 0);
-    const actual = expenses.filter((expense) => expense.budget_line_id === line.id).reduce((sum, expense) => sum + expense.amount, 0);
+    const actual = lineExpenses.reduce((sum, expense) => sum + expense.amount, 0);
     const account = accounts.find((item) => item.id === line.account_id)?.name ?? "Unassigned account";
     const ratio = line.approved_amount ? Math.round((committed / line.approved_amount) * 100) : 0;
 
     return {
+      sourceRefs: uniqueStrings([
+        `budget_line:${line.id}`,
+        line.account_id ? `account:${line.account_id}` : null,
+        ...lineAllowances.map((allowance) => `budget_allowance:${allowance.id}`),
+        ...lineExpenses.map((expense) => `expense:${expense.id}`),
+      ]),
       category: line.category,
       account,
       approved: line.approved_amount,
@@ -622,6 +655,7 @@ function mapAudit(row: AuditQueryRow): AuditEvent {
     : undefined;
 
   return {
+    id: row.id,
     actor: row.user_id ? "Authenticated user" : "System",
     action: row.action,
     target: row.target,
@@ -707,7 +741,7 @@ export async function getStrataAppData(accessToken?: string): Promise<StrataAppD
     supabase
       .from("cards")
       .select(
-        "id,title,description,type,status,visibility,linked_project_id,updated_at,created_at,messages(id,body,created_at,author:members!messages_author_member_id_fkey(full_name)),proposals(id,title,status,deadline,votes(vote),approval_conditions(condition_text,status)),project:projects!cards_linked_project_id_fkey(name),creator:members!cards_creator_member_id_fkey(full_name)",
+        "id,title,description,type,status,visibility,linked_project_id,updated_at,created_at,messages(id,body,created_at,author:members!messages_author_member_id_fkey(full_name)),proposals(id,title,status,deadline,votes(id,vote),approval_conditions(id,condition_text,status)),project:projects!cards_linked_project_id_fkey(name),creator:members!cards_creator_member_id_fkey(full_name)",
       )
       .eq("committee_id", member.committee_id)
       .order("updated_at", { ascending: false })
@@ -742,10 +776,10 @@ export async function getStrataAppData(accessToken?: string): Promise<StrataAppD
       .select("id,budget_line_id,name,approved_amount,committed_amount,invoiced_amount")
       .eq("committee_id", member.committee_id)
       .limit(40),
-    supabase.from("expenses").select("budget_line_id,amount").eq("committee_id", member.committee_id).limit(80),
+    supabase.from("expenses").select("id,budget_line_id,amount").eq("committee_id", member.committee_id).limit(80),
     supabase
       .from("project_milestones")
-      .select("project_id,label,planned_on,actual_on,status")
+      .select("id,project_id,label,planned_on,actual_on,status")
       .eq("committee_id", member.committee_id)
       .order("planned_on")
       .limit(80),
@@ -839,8 +873,8 @@ export async function getStrataAppData(accessToken?: string): Promise<StrataAppD
     summary:
       "Supabase budget recommendation uses visible accounts, allowances, expenses, projects, variations, and invoices. Reconcile against official strata accounts before approving spend.",
     citations: [
-      `${budgetLines.length || fallbackBudgetLines.length} budget lines`,
-      `${projects.length || fallbackProjects.length} project records`,
+      `${budgetLines.length} budget lines`,
+      `${projects.length} project records`,
       `${supabaseExpenses.length} expense records`,
       `${supabaseInvoices.length} invoice records`,
     ],
@@ -854,15 +888,15 @@ export async function getStrataAppData(accessToken?: string): Promise<StrataAppD
       mode: "active",
       member,
     },
-    cards: supabaseCards.length ? cards : fallbackCards,
-    documents: supabaseDocuments.length
-      ? supabaseDocuments.map((document) => mapDocument(document, supabaseCards, supabaseProjects, supabaseAttachments))
-      : fallbackDocuments,
-    projects: projects.length ? projects : fallbackProjects,
-    vendors: supabaseVendors.length ? mapVendors(supabaseVendors) : [],
-    members: supabaseMembers.length ? mapMembers(supabaseMembers) : [],
-    activity: activity.length ? activity : fallbackActivity,
-    budgetLines: budgetLines.length ? budgetLines : fallbackBudgetLines,
+    cards,
+    documents: supabaseDocuments.map((document) =>
+      mapDocument(document, supabaseCards, supabaseProjects, supabaseAttachments),
+    ),
+    projects,
+    vendors: mapVendors(supabaseVendors),
+    members: mapMembers(supabaseMembers),
+    activity,
+    budgetLines,
     budgetRecommendation,
   };
 }

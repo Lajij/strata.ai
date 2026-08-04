@@ -1,12 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentMember } from "@/lib/strata-app-data";
+import {
+  assertInviteCanBePrepared,
+  canManageMembers,
+  memberAccessLevels,
+  memberRoles,
+  type MemberAccessLevel,
+} from "@/lib/member-authorization";
 import { getSupabaseAdminClient } from "@/lib/supabase/admin";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
-import type { MemberRole } from "@/lib/supabase/types";
-
-const adminRoles = new Set(["admin", "chair", "secretary"]);
-const memberRoles = new Set(["admin", "chair", "secretary", "treasurer", "member", "strata_manager"]);
-const accessLevels = new Set(["admin", "member", "limited_admin", "read_only"]);
+import type { MemberRole, MemberStatus } from "@/lib/supabase/types";
 
 function stringValue(value: unknown, label: string) {
   if (typeof value !== "string" || !value.trim()) {
@@ -39,7 +42,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Sign in as an active admin member to invite committee users" }, { status: 401 });
   }
 
-  if (!adminRoles.has(member.role)) {
+  if (!canManageMembers(member.role)) {
     return NextResponse.json({ error: "Only admin, chair, or secretary members can invite users" }, { status: 403 });
   }
 
@@ -54,7 +57,11 @@ export async function POST(request: NextRequest) {
     const email = stringValue(payload.email, "Email").toLowerCase();
     const fullName = stringValue(payload.fullName, "Name");
     const role = optionalEnum(payload.role, memberRoles, "member") as MemberRole;
-    const accessLevel = optionalEnum(payload.accessLevel, accessLevels, role === "admin" ? "admin" : "member");
+    const accessLevel = optionalEnum(
+      payload.accessLevel,
+      memberAccessLevels,
+      role === "admin" ? "admin" : "member",
+    ) as MemberAccessLevel;
     const now = new Date().toISOString();
     const redirectTo = new URL("/", request.url).toString();
 
@@ -69,6 +76,8 @@ export async function POST(request: NextRequest) {
       throw existingError;
     }
 
+    assertInviteCanBePrepared(existing?.status as MemberStatus | undefined);
+
     const inviteResult = await admin.auth.admin.inviteUserByEmail(email, {
       data: {
         full_name: fullName,
@@ -77,7 +86,6 @@ export async function POST(request: NextRequest) {
       redirectTo,
     });
     const authUserId = inviteResult.data.user?.id ?? existing?.user_id ?? null;
-    const nextStatus = existing?.status === "active" ? "active" : "invited";
 
     const { data: savedMember, error: saveError } = await admin
       .from("members")
@@ -89,12 +97,12 @@ export async function POST(request: NextRequest) {
           email,
           full_name: fullName,
           role,
-          status: nextStatus,
+          status: "invited",
           access_level: accessLevel,
           invited_by: user.id,
           invited_by_member_id: member.id,
-          invited_at: existing?.status === "active" ? null : now,
-          accepted_at: existing?.status === "active" ? now : null,
+          invited_at: now,
+          accepted_at: null,
         },
         { onConflict: "committee_id,email" },
       )
@@ -104,22 +112,6 @@ export async function POST(request: NextRequest) {
     if (saveError) {
       throw saveError;
     }
-
-    await admin.from("audit_log").insert({
-      committee_id: member.committee_id,
-      user_id: user.id,
-      action: "Invited member",
-      target: email,
-      metadata: {
-        workflow: "member-invite",
-        member_id: savedMember.id,
-        status: savedMember.status,
-        role,
-        access_level: accessLevel,
-        invite_email_sent: !inviteResult.error,
-        invite_error: inviteResult.error ? "Invite email could not be sent; member row was still prepared" : null,
-      },
-    });
 
     return NextResponse.json({
       mode: "supabase",

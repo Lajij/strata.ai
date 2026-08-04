@@ -15,6 +15,7 @@ export const runtime = "nodejs";
 export const maxDuration = 30;
 
 const model = process.env.STRATA_AI_MODEL ?? "openai/gpt-5.4";
+const releaseAiMode = process.env.STRATA_AI_RELEASE_MODE === "live" ? "live" : "fallback";
 const supportedTasks = new Set<AiTask>([
   "card-brief",
   "thread-summary",
@@ -62,6 +63,10 @@ const lawLookupSchema = z.object({
 
 function hasGatewayCredentials() {
   return Boolean(process.env.VERCEL_OIDC_TOKEN || process.env.AI_GATEWAY_API_KEY);
+}
+
+function shouldUseFallback(body: Record<string, unknown>) {
+  return body.forceFallback === "true" || releaseAiMode !== "live" || !hasGatewayCredentials();
 }
 
 function textValue(value: unknown) {
@@ -399,6 +404,7 @@ export async function POST(request: Request, context: { params: Promise<{ task: 
   const prompt = buildPrompt(task, body, contextBundle);
   const providerMetadata = {
     task,
+    release_mode: releaseAiMode,
     forced_fallback: body.forceFallback === "true",
     gateway_credentials_present: hasGatewayCredentials(),
   };
@@ -422,7 +428,7 @@ export async function POST(request: Request, context: { params: Promise<{ task: 
     return Response.json({ ...refusal, status: "error", created_mode: "refusal", ...persistence }, { status: 422 });
   }
 
-  if (body.forceFallback === "true" || !hasGatewayCredentials()) {
+  if (shouldUseFallback(body)) {
     const mockResponse = fallback(task, contextBundle, body);
     const persistence = await persistAiOutput({
       task,

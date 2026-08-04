@@ -1,3 +1,4 @@
+import { resolveServiceKey } from "./service-key.mjs";
 import { spawn } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -10,7 +11,8 @@ loadEnv(".env");
 const externalBrowserUrl = Boolean(process.env.STRATA_BROWSER_URL);
 const appUrl = process.env.STRATA_BROWSER_URL ?? "http://127.0.0.1:3000";
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const serviceKey = process.env["SUPABASE" + "_SERVICE_ROLE" + "_KEY"];
+const serviceKey =
+  resolveServiceKey();
 const adminEmail = process.env.STRATA_ADMIN_EMAIL ?? "strata.admin@example.com";
 const adminPassword = process.env.STRATA_ADMIN_PASSWORD ?? "StrataAdmin123!";
 const memberEmail = process.env.STRATA_MEMBER_EMAIL ?? "strata.member@example.com";
@@ -21,7 +23,7 @@ const invitedEmail = `${marker}-invited@example.com`;
 const managedPassword = "AuthBrowserVerify123!";
 
 if (!supabaseUrl || !serviceKey) {
-  throw new Error("Set NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY for auth browser verification setup.");
+  throw new Error("Set NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SECRET_KEY for auth browser verification setup.");
 }
 
 const service = createClient(supabaseUrl, serviceKey, {
@@ -52,11 +54,46 @@ function loadEnv(file) {
   }
 }
 
+// Vercel Preview deployments sit behind Deployment Protection. The
+// "Protection Bypass for Automation" secret lets verification traffic through
+// without weakening protection for anyone else. Absent, this is a no-op.
+// The secret is passed as a query parameter on the first navigation so Vercel
+// sets a bypass cookie scoped to the deployment origin. Sending it as a header
+// on every request would leak it to third-party origins the page contacts.
+const bypassSecret = process.env.VERCEL_AUTOMATION_BYPASS_SECRET ?? "";
+
+function withBypass(target) {
+  if (!bypassSecret) {
+    return target;
+  }
+
+  const parsed = new URL(target);
+  parsed.searchParams.set("x-vercel-protection-bypass", bypassSecret);
+  parsed.searchParams.set("x-vercel-set-bypass-cookie", "true");
+  return parsed.toString();
+}
+
 async function canReachApp() {
   try {
-    const response = await fetch(appUrl, { signal: AbortSignal.timeout(1500) });
+    const response = await fetch(withBypass(appUrl), {
+      redirect: "manual",
+      signal: AbortSignal.timeout(5000),
+    });
+
+    // Following the redirect would land on the Vercel login page and return
+    // 200, so protection has to be detected here rather than downstream.
+    if ((response.headers.get("location") ?? "").includes("vercel.com/sso")) {
+      throw new Error(
+        `Vercel Deployment Protection is blocking ${appUrl}. Set a valid 32-character VERCEL_AUTOMATION_BYPASS_SECRET (Project Settings -> Deployment Protection -> Protection Bypass for Automation), or disable Vercel Authentication for Preview.`,
+      );
+    }
+
     return response.ok || response.status < 500;
-  } catch {
+  } catch (error) {
+    if (error instanceof Error && error.message.includes("Deployment Protection")) {
+      throw error;
+    }
+
     return false;
   }
 }
@@ -183,10 +220,14 @@ async function hydrate(page) {
   });
 }
 
-async function signIn(page, email, password) {
+async function submitCredentials(page, email, password) {
   await page.getByLabel("Email").fill(email);
   await page.getByLabel("Password").fill(password);
   await page.getByRole("button", { name: /sign in/i }).click();
+}
+
+async function signIn(page, email, password) {
+  await submitCredentials(page, email, password);
   await page.getByRole("banner").getByText(email).waitFor({ timeout: 30000 });
 }
 
@@ -224,7 +265,7 @@ const observations = {
   loadingState: false,
   successState: false,
   activeState: false,
-  invitedState: false,
+  backwardsInviteRejected: false,
   inactiveState: false,
   selfLockoutControlsDisabled: false,
   ordinarySignedIn: false,
@@ -245,13 +286,15 @@ page.on("console", (message) => {
 page.on("pageerror", (error) => pageErrors.push(error.message));
 
 try {
-  await page.goto(appUrl, { waitUntil: "networkidle" });
+  await page.goto(withBypass(appUrl), { waitUntil: "networkidle" });
   await hydrate(page);
   await page.getByRole("heading", { name: "Sign in with an active committee account" }).waitFor({ timeout: 20000 });
   observations.signedOutLocked = true;
 
   await signIn(page, adminEmail, adminPassword);
-  await page.getByText("Supabase RLS-backed session data").waitFor({ timeout: 30000 });
+  // Rendered in both the header and the dashboard evidence-boundary panel, so
+  // disambiguate rather than assert a single occurrence.
+  await page.getByText("Supabase RLS-backed session data").first().waitFor({ timeout: 30000 });
   observations.adminSignedIn = true;
 
   await openMembers(page);
@@ -263,7 +306,8 @@ try {
   await page.getByLabel("Invite access level").selectOption("limited_admin");
   await inviteButton.click();
   await page.getByText(/Sending invite|Member invited|Member invite row saved/).waitFor({ timeout: 30000 });
-  await page.getByText(invitedEmail).waitFor({ timeout: 30000 });
+  // The email appears in both the row's field label and its own text node.
+  await page.getByText(invitedEmail).first().waitFor({ timeout: 30000 });
   observations.inviteCreatesPendingMember = true;
 
   let managedRow = await memberRow(page, managedEmail);
@@ -280,9 +324,10 @@ try {
   managedRow = await memberRow(page, managedEmail);
   await managedRow.getByLabel(`Status for ${managedEmail}`).selectOption("invited");
   await managedRow.getByLabel(`Save member ${managedEmail}`).click();
-  await page.getByText("Member access updated and audited").waitFor({ timeout: 30000 });
-  managedRow = await memberRow(page, managedEmail);
-  observations.invitedState = (await managedRow.innerText()).includes("Invited");
+  await page
+    .getByText("Active or suspended members cannot be moved back to invited")
+    .waitFor({ timeout: 30000 });
+  observations.backwardsInviteRejected = true;
 
   await managedRow.getByLabel(`Status for ${managedEmail}`).selectOption("suspended");
   await managedRow.getByLabel(`Save member ${managedEmail}`).click();
@@ -319,7 +364,9 @@ try {
     !ordinaryText.includes("Hidden document");
 
   await signOut(page);
-  await signIn(page, managedEmail, managedPassword);
+  // A suspended member must never reach an authenticated header, so submit the
+  // credentials without asserting a session and require the locked screen.
+  await submitCredentials(page, managedEmail, managedPassword);
   await page.getByRole("heading", { name: "Sign in with an active committee account" }).waitFor({ timeout: 30000 });
   const suspendedText = await bodyText(page);
   observations.suspendedLocked =
