@@ -17,6 +17,8 @@
     "verify:migrations": "node scripts/verify-migrations.mjs",
     "verify:migrations:reconciliation": "node scripts/verify-migration-reconciliation.mjs",
     "verify:migrations:replay": "node scripts/verify-migrations-replay.mjs",
+    "verify:capabilities": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types scripts/verify-capabilities.mjs",
+    "verify:capabilities:rls": "node scripts/verify-capability-rls.mjs",
     "supabase:push:dry-run": "node scripts/safe-supabase-push.mjs --dry-run",
     "supabase:push:schema": "node scripts/safe-supabase-push.mjs",
     "verify:production-ready": "node scripts/verify-production-ready.mjs",
