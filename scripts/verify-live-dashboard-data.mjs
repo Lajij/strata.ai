@@ -1,12 +1,14 @@
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { createClient } from "@supabase/supabase-js";
+import { FIXTURE_IDS } from "./fixture-identifiers.mjs";
+import { assertSafeMutationTarget } from "./target-environment-guard.mjs";
 
-const COMMITTEE_ID = "11111111-1111-1111-1111-111111111111";
-const ADMIN_CARD_ID = "44444444-4444-4444-4444-444444444442";
-const CUSTOM_CARD_ID = "44444444-4444-4444-4444-444444444443";
-const ADMIN_DOC_ID = "77777777-7777-7777-7777-777777777772";
-const ADMIN_AUDIT_ID = "99999999-9999-9999-9999-999999999992";
+const COMMITTEE_ID = FIXTURE_IDS.committee;
+const ADMIN_CARD_ID = FIXTURE_IDS.adminCard;
+const CUSTOM_CARD_ID = FIXTURE_IDS.customCard;
+const ADMIN_DOC_ID = FIXTURE_IDS.adminDocument;
+const ADMIN_AUDIT_ID = FIXTURE_IDS.adminAudit;
 
 loadEnv(".env.local");
 loadEnv(".env");
@@ -15,14 +17,19 @@ const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const anonKey =
   process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ??
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-const adminEmail = process.env.STRATA_ADMIN_EMAIL ?? "strata.admin@example.com";
-const adminPassword = process.env.STRATA_ADMIN_PASSWORD ?? "StrataAdmin123!";
-const memberEmail = process.env.STRATA_MEMBER_EMAIL ?? "strata.member@example.com";
-const memberPassword = process.env.STRATA_MEMBER_PASSWORD ?? "StrataMember123!";
+const adminEmail = process.env.STRATA_ADMIN_EMAIL ?? "strata.fixture.admin@example.invalid";
+const adminPassword = process.env.STRATA_ADMIN_PASSWORD ?? "LocalFixtureAdmin123!";
+const memberEmail = process.env.STRATA_MEMBER_EMAIL ?? "strata.fixture.member@example.invalid";
+const memberPassword = process.env.STRATA_MEMBER_PASSWORD ?? "LocalFixtureMember123!";
 
 if (!url || !anonKey) {
   throw new Error("Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY before verifying live dashboard data.");
 }
+
+assertSafeMutationTarget({
+  url,
+  operation: "verify:live-dashboard authenticated reads",
+});
 
 function loadEnv(file) {
   const path = resolve(process.cwd(), file);

@@ -523,18 +523,18 @@ export const emptyStates = [
 
 export const setupChecklist = [
   { label: "Supabase schema and RLS migration", done: true, icon: ClipboardCheck },
-  { label: "Seeded personal building workspace", done: true, icon: Building2 },
-  { label: "AI route stubs with safe fallbacks", done: true, icon: Sparkles },
+  { label: "Seeded synthetic test workspace", done: true, icon: Building2 },
+  { label: "Explicit non-Production AI fixture mode", done: true, icon: Sparkles },
   { label: "Vercel AI Gateway credentials", done: false, icon: Inbox },
   { label: "Document extraction worker", done: false, icon: FileText },
   { label: "Gmail email-to-card import", done: false, icon: MessagesSquare },
 ];
 
 export const buildingContext = {
-  name: "SP 6430 - 33 Malvern Avenue",
+  name: "Synthetic Strata Test Committee",
   jurisdiction: "NSW Australia",
-  plan: "Personal building workspace with SaaS-ready committee isolation",
-  authMode: "Invite-only shell using mocked session until Supabase env vars are present",
+  plan: "Anonymised fixture workspace with committee isolation",
+  authMode: "Explicit read-only fixture mode; live configuration fails closed",
   disclaimer:
     "AI output is general information only and must be verified with the strata manager, solicitor, engineer, certifier, or accountant before formal decisions.",
 };

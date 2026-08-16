@@ -17,7 +17,7 @@ No frontend integration may require a schema change merely to match a mock scree
 - Active/suspended members cannot move backward to `invited`; activation requires a linked Auth user; authenticated users cannot change their own role, status, or access level.
 - Browser code may use only `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` (legacy anon fallback is compatibility-only). Secret/service keys remain server-only and must not enter client components or bundles.
 - Authenticated browser requests use `authHeaders()`: `Content-Type: application/json` plus `Authorization: Bearer <access_token>` when a session exists. No verifier or UI may print the token.
-- Mutations must preserve audit behavior. Member lifecycle auditing is transactional in Postgres; workflow/finance mutations write audit events through their routes; AI generation persists `ai_outputs` and mirrors an audit event when an active member exists.
+- Mutations must preserve audit behavior. Member lifecycle auditing is transactional in Postgres. Workflow/finance/AI routes currently perform separate business and audit writes; transaction/fault-injection hardening remains an N1b gate and must not be represented as atomic.
 - AI answers expose mode/model, visible-source citations, and a non-binding disclaimer. Hidden requested records return 403; NSW law lookup without indexed official context refuses with 422.
 - The relative Proxy session import and server-only admin boundary remain protected by `verify:production-ready`.
 
@@ -72,13 +72,13 @@ type StrataAppData = {
 }
 ```
 
-The active Supabase response is assembled only from the current member’s committee and RLS-visible rows. A Supabase query failure currently returns fallback records with `sourceDetail = "Supabase query failed; using local fallback data"`; integrations must display source/mode honestly and must not label fallback records as live.
+The active Supabase response is assembled only from the current member’s committee and RLS-visible rows. `source: "fallback"` is now reserved for explicit non-Production synthetic fixture mode (`STRATA_DATA_MODE=fixture`). Missing configuration or a Supabase authentication/query failure returns a typed non-2xx unavailable response and never substitutes fixture records.
 
 The current view adapter maps the backend data into `BuildingPlatformData` and also preserves `rawMembers`, `rawProjects`, and `currentMember` for security-sensitive/member/AI surfaces. An incoming frontend may replace the adapter, but it may not narrow or fabricate the backend contract.
 
 ## HTTP endpoint contract
 
-Unless noted, successful live mutations return JSON with `mode: "supabase"`; local missing-env behavior returns an explicit `mode: "fallback"` mock response. Unknown dynamic actions/tasks return 404. Validation/data failures return `{ error: string }` and an appropriate 4xx/503 status.
+Unless noted, successful live mutations return JSON with `mode: "supabase"`. Missing/invalid runtime configuration returns a typed 503. Explicit fixture mode disables writes with `FIXTURE_WRITE_DISABLED`; no write route returns fabricated identifiers or mock success. `STRATA_AI_RELEASE_MODE` must be explicit, mock AI is forbidden in Production, and callers cannot override the server mode. Unknown dynamic actions/tasks return 404. Validation/data failures return `{ error: string, code: string }` and an appropriate 4xx/5xx status without raw upstream text.
 
 The dynamic endpoint families are `POST /api/workflow/{action}`, `POST /api/finance/{action}`, and `POST /api/ai/{task}`; the table below freezes every supported value.
 
@@ -87,7 +87,7 @@ The dynamic endpoint families are `POST /api/workflow/{action}`, `POST /api/fina
 | `GET /api/app-data` | Optional bearer; active member required for records | None | `StrataAppData`; `Cache-Control: no-store` |
 | `POST /api/members/accept` | Authenticated user with email | Empty JSON accepted | Active member DTO and message; activates only a matching invited email/user |
 | `POST /api/members/invite` | Active `admin`/`chair`/`secretary` | `email`, `fullName`, optional `role`, `accessLevel` | Member DTO, `inviteEmailSent`, message; rejects active/suspended existing rows |
-| `POST /api/members/update` | Active `admin`/`chair`/`secretary` | `memberId`, `fullName`, `role`, `status`, `accessLevel` | Updated member DTO and audited message; lifecycle/self-lockout guards apply |
+| `POST /api/members/update` | Active `admin`/`chair`/`secretary` | `memberId`, `fullName`, `role`, `status`, `accessLevel` | Updated member DTO and success message; lifecycle/self-lockout guards apply |
 | `POST /api/documents/create` | Active member | Multipart or JSON: `title`, `documentType`, optional `visibility`, `sourceDate`, `cardId`, `projectId`, `file`, `fileName`, `fileType`, `extractedText` | Document ID and extraction/Markdown status message; storage bucket is `strata-documents` |
 | `POST /api/workflow/create-card` | Active member | `title`, `description`, optional `type`, `visibility` | Created/audited card ID |
 | `POST /api/workflow/add-message` | Active member | `cardId`, `body` | Created/audited message ID |
@@ -97,7 +97,7 @@ The dynamic endpoint families are `POST /api/workflow/{action}`, `POST /api/fina
 | `POST /api/finance/create-vendor` | Active member plus table RLS | `name`; optional contact/license/insurance fields | Created/audited vendor ID |
 | `POST /api/finance/create-invoice` | Active member plus table RLS | `invoiceNumber`, `amount`; optional project/card/vendor/document, status, due date | Created/audited invoice ID |
 | `POST /api/finance/create-quote-review` | Active member plus table RLS | Optional card/document, risk, inclusion/exclusion/question/condition lists | Created/audited quote-review ID |
-| `POST /api/ai/{task}` | Visible context is session/RLS scoped | Optional `cardId`, `documentId`, `projectId`, `question`; verification-only `verificationMarker`, `forceFallback` | Mode/task/model, context, citations, disclaimer, text or structured output, persistence metadata |
+| `POST /api/ai/{task}` | Visible context is session/RLS scoped | Optional `cardId`, `documentId`, `projectId`, `question`; verification-only `verificationMarker` | Mode/task/model, context, citations, disclaimer, text or structured output, persistence metadata |
 
 Supported AI tasks are exactly `card-brief`, `thread-summary`, `document-qa`, `nsw-law-lookup`, `budget-insights`, `quote-risk`, and `project-status`.
 
@@ -122,23 +122,25 @@ Commands are grouped by side effect. Integration work must run the relevant jour
 | Global compile/type | `npm run build` | Local-only |
 | Frozen contract | `npm run verify:frontend-contract` | Local-only; validates this document against source |
 | Security/RLS source | `npm run verify:security` | Local-only static gate |
-| Production readiness | `npm run verify:production-ready` | Live reads and cleanup-controlled checks; use only under approved barrier |
-| Fallback build | `npm run verify:fallback-build` | Local-only fallback compile |
+| Isolated staging readiness | `npm run verify:production-ready` | Guarded live reads plus a cleanup-controlled Storage smoke; Production is rejected |
+| Explicit fixture build | `npm run verify:fallback-build` | Local-only compile with explicit non-Production fixture mode; not missing-config runtime proof |
+| Fail-closed boundary | `npm run verify:fail-closed` | Local-only executable runtime-configuration/target-guard assertions, route negative paths, simulated upstream failures, and a static 15-script mutator inventory |
 | Auth static/live | `npm run verify:auth-flow`; `STRATA_VERIFY_LIVE_AUTH=1 npm run verify:auth-flow` | Static by default; live form is cleanup-controlled and approval-gated |
 | Members static/live | `npm run verify:member-management`; `STRATA_VERIFY_LIVE_MEMBERS=1 npm run verify:member-management` | Static by default; live form is cleanup-controlled and approval-gated |
-| Base role browser | `STRATA_BROWSER_URL=<preview> npm run verify:auth-browser` | Creates/cleans test Auth/member rows; Preview access required |
+| Base role browser | `STRATA_BROWSER_URL=<preview> npm run verify:auth-browser` | Guarded staging-only mutation; creates/cleans test Auth/member rows; exact Preview and Supabase targets required |
 | Writable workflow source | `npm run verify:workflow-ui` | Local-only; must inspect the composed UI surface |
-| Writable workflow browser | `STRATA_BROWSER_URL=<preview> npm run verify:browser-workflow` | Creates/cleans workflow rows; Preview access required |
+| Writable workflow browser | `STRATA_BROWSER_URL=<preview> npm run verify:browser-workflow` | Guarded staging-only mutation; creates/cleans workflow rows; exact Preview and Supabase targets required |
 | Documents | `npm run verify:documents` | Live cleanup-controlled gate; approved barrier only |
 | Documents journey | `npm run verify:documents-ui` | Local-only; validates multipart upload binding, status handling, refresh, and extraction-state presentation |
 | AI source/runtime | `npm run verify:ai`; `npm run verify:ai-observability`; `npm run verify:law` | Live cleanup-controlled gates when env is present; approved barrier only |
-| AI browser | `STRATA_BROWSER_URL=<preview> npm run verify:ai-browser` | Creates/cleans marked AI outputs; Preview access required |
-| Finance patterns | `npm run verify:budget`; `npm run verify:quote-invoice` | Static when prerequisites are absent; may be live with configured env |
+| AI browser | `STRATA_BROWSER_URL=<preview> npm run verify:ai-browser` | Guarded staging-only mutation; creates/cleans marked AI outputs; exact Preview and Supabase targets required |
+| Budget integration | `npm run verify:budget` | Always a guarded live direct-API integration test; requires an approved local/test or staging target |
+| Quote/invoice hybrid | `npm run verify:quote-invoice` | Static with `STRATA_SKIP_LIVE=1` or absent credentials; guarded live direct-API checks when configured |
 | Live dashboard | `npm run verify:live-dashboard` | Live read gate |
 | Projects journey | `npm run verify:projects` | Local-only; validates dedicated navigation, complete project evidence, and project-status AI binding |
 | Admin journey | `npm run verify:admin` | Local-only; validates role-gated member controls, self-lockout protection, and truthful read-only settings |
 | Cross-record search | `npm run verify:search` | Local-only behavior/static gate; hidden/unpersisted negatives and source references required |
-| Frontend QA browser | `STRATA_BROWSER_URL=<local-or-preview> npm run verify:frontend-qa-browser` | Signs in with the pre-existing active admin/member accounts and performs only navigation, dialog, accessibility, responsive-layout, and disabled-control checks; it submits no workflow, document, member-management, or AI forms. Normal sign-in performs the idempotent active-member invite-accept check. |
+| Frontend QA browser | `STRATA_BROWSER_URL=<local-or-preview> npm run verify:frontend-qa-browser` | Guarded local/test or exact staging target. Signs in with pre-existing active accounts and performs navigation, dialog, accessibility, responsive-layout, and disabled-control checks; normal sign-in performs the invite-accept check. |
 
 Every journey merge must pass `lint`, `build`, `verify:frontend-contract`, its mapped source/runtime verifier, and the reusable Preview `role-gate`. The final journey fan-in additionally requires browser workflow and AI browser coverage where those surfaces changed.
 

@@ -1,10 +1,12 @@
 import { resolveServiceKey } from "./service-key.mjs";
+import { FIXTURE_IDS } from "./fixture-identifiers.mjs";
+import { assertSafeMutationTarget } from "./target-environment-guard.mjs";
 import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { createClient } from "@supabase/supabase-js";
 
 const root = process.cwd();
-const COMMITTEE_ID = "11111111-1111-1111-1111-111111111111";
+const COMMITTEE_ID = FIXTURE_IDS.committee;
 const TEST_MEMBER_ID = "91919191-9191-9191-9191-919191919181";
 const TEST_EMAIL = "member-management-verify@example.com";
 const TEST_PASSWORD = "MemberManageVerify123!";
@@ -120,7 +122,7 @@ const appDataSource = read("src/lib/strata-app-data.ts");
 const componentSource = read("src/components/pages/people-page.tsx");
 const updateRoute = read("src/app/api/members/update/route.ts");
 const inviteRoute = read("src/app/api/members/invite/route.ts");
-const memberAuthorization = read("src/lib/member-authorization.ts");
+const memberCapabilities = read("src/lib/member-capabilities.ts");
 const initialMigration = read("supabase/migrations/202606250001_initial_strata_governance.sql");
 const lifecycleMigration = read("supabase/migrations/20260801053901_harden_member_lifecycle_audit.sql");
 const securityVerifier = read("scripts/verify-rls-and-ai-context.mjs");
@@ -139,12 +141,9 @@ assert(updateRoute.includes("canManageMembers"), "Update route must enforce the 
 assert(updateRoute.includes('.from("members")'), "Update route must mutate members table");
 assert(updateRoute.includes("assertMemberLifecycleTransition"), "Update route must enforce member lifecycle transitions");
 assert(inviteRoute.includes("assertInviteCanBePrepared"), "Invite route must reject existing active or suspended members");
-assert(memberAuthorization.includes("admin: { manageMembers: true }"), "Admin must have member-management capability");
-assert(memberAuthorization.includes("chair: { manageMembers: true }"), "Chair must have member-management capability");
-assert(memberAuthorization.includes("secretary: { manageMembers: true }"), "Secretary must have member-management capability");
-assert(memberAuthorization.includes("treasurer: { manageMembers: false }"), "Treasurer must not have member-management capability");
-assert(memberAuthorization.includes("member: { manageMembers: false }"), "Ordinary member must not have member-management capability");
-assert(memberAuthorization.includes("strata_manager: { manageMembers: false }"), "Strata manager must not have member-management capability");
+assert(memberCapabilities.includes('const memberManagementRoles = new Set(["admin", "chair", "secretary"])'), "Member-management roles must be explicit");
+assert(memberCapabilities.includes('principal.accessLevel === "read_only"'), "Read-only access must deny write capabilities");
+assert(memberCapabilities.includes('const financialRoles = new Set(["admin", "chair", "treasurer"])'), "Financial capability roles must be explicit");
 assert(initialMigration.includes('create policy "admins can manage committee roster"'), "Members RLS must enforce privileged-role writes");
 assert(initialMigration.includes("in ('admin', 'chair', 'secretary')"), "Members RLS role matrix must match the server routes");
 assert(lifecycleMigration.includes("new.status = 'active' and new.user_id is null"), "Database lifecycle guard must prevent activating unaccepted invites");
@@ -174,12 +173,17 @@ const anonKey =
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 const serviceKey =
   resolveServiceKey();
-const adminEmail = process.env.STRATA_ADMIN_EMAIL ?? "strata.admin@example.com";
-const adminPassword = process.env.STRATA_ADMIN_PASSWORD ?? "StrataAdmin123!";
-const memberEmail = process.env.STRATA_MEMBER_EMAIL ?? "strata.member@example.com";
-const memberPassword = process.env.STRATA_MEMBER_PASSWORD ?? "StrataMember123!";
+const adminEmail = process.env.STRATA_ADMIN_EMAIL ?? "strata.fixture.admin@example.invalid";
+const adminPassword = process.env.STRATA_ADMIN_PASSWORD ?? "LocalFixtureAdmin123!";
+const memberEmail = process.env.STRATA_MEMBER_EMAIL ?? "strata.fixture.member@example.invalid";
+const memberPassword = process.env.STRATA_MEMBER_PASSWORD ?? "LocalFixtureMember123!";
 
 assert(url && anonKey && serviceKey, "Live member verification needs Supabase URL, anon key, and local service key.");
+
+assertSafeMutationTarget({
+  url,
+  operation: "verify:member-management live checks",
+});
 
 const service = createClient(url, serviceKey, {
   auth: { autoRefreshToken: false, persistSession: false },

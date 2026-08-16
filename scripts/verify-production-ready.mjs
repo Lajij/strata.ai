@@ -2,9 +2,9 @@ import { resolveServiceKey } from "./service-key.mjs";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { createClient } from "@supabase/supabase-js";
+import { assertSafeMutationTarget } from "./target-environment-guard.mjs";
 
 const root = process.cwd();
-const expectedProjectRef = "osgvagsouxgbrnbljhxb";
 const bucket = "strata-documents";
 
 loadEnv(".env.local");
@@ -84,6 +84,7 @@ const documentRoute = read("src/app/api/documents/create/route.ts");
 const supabaseServer = read("src/lib/supabase/server.ts");
 const supabaseClient = read("src/lib/supabase/client.ts");
 const supabaseAdmin = read("src/lib/supabase/admin.ts");
+const runtimeConfiguration = read("src/lib/runtime-configuration.ts");
 const storageMigration = read("supabase/migrations/202606260002_document_storage_bucket.sql");
 const readme = read("README.md");
 
@@ -105,7 +106,7 @@ assert(supabaseServer.includes("createServerClient"), "Server client must use SS
 assert(supabaseClient.includes("createBrowserClient"), "Browser client must use Supabase SSR browser client");
 assert(supabaseAdmin.startsWith('import "server-only";'), "Admin client must be guarded by server-only");
 assert(aiRoute.includes("hasGatewayCredentials"), "AI route must expose live/fallback gateway mode selection");
-assert(aiRoute.includes("forceFallback"), "AI route must support deterministic fallback verification");
+assert(runtimeConfiguration.includes("AI_FALLBACK_FORBIDDEN"), "AI route must reject fallback responses in Production");
 assert(storageMigration.includes(bucket), "Storage bucket migration must configure the document bucket");
 assert(storageMigration.includes("public = excluded.public"), "Storage bucket must be private and idempotently configured");
 assert(readme.includes("Production Readiness Checklist"), "README must include the production readiness checklist");
@@ -131,9 +132,14 @@ const anonKey =
 const serviceKey =
   resolveServiceKey();
 
-assert(supabaseUrl?.includes(expectedProjectRef), `NEXT_PUBLIC_SUPABASE_URL must point to ${expectedProjectRef}`);
+assert(Boolean(supabaseUrl), "NEXT_PUBLIC_SUPABASE_URL is required for staging readiness checks");
 assert(Boolean(anonKey), "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY is required for production readiness checks");
 assert(Boolean(serviceKey), "SUPABASE_SECRET_KEY is required locally for production readiness checks");
+
+const target = assertSafeMutationTarget({
+  url: supabaseUrl,
+  operation: "verify:production-ready",
+});
 
 const service = createClient(supabaseUrl, serviceKey, {
   auth: { autoRefreshToken: false, persistSession: false },
@@ -141,8 +147,8 @@ const service = createClient(supabaseUrl, serviceKey, {
 const anon = createClient(supabaseUrl, anonKey, {
   auth: { autoRefreshToken: false, persistSession: false },
 });
-const memberEmail = process.env.STRATA_MEMBER_EMAIL ?? "strata.member@example.com";
-const memberPassword = process.env.STRATA_MEMBER_PASSWORD ?? "StrataMember123!";
+const memberEmail = process.env.STRATA_MEMBER_EMAIL ?? "strata.fixture.member@example.invalid";
+const memberPassword = process.env.STRATA_MEMBER_PASSWORD ?? "LocalFixtureMember123!";
 const { data: authData, error: authError } = await anon.auth.signInWithPassword({
   email: memberEmail,
   password: memberPassword,
@@ -195,7 +201,7 @@ console.log(
   JSON.stringify(
     {
       ok: true,
-      project: expectedProjectRef,
+      project: target.projectRef ?? target.origin,
       checks: {
         env: true,
         secretHygiene: true,

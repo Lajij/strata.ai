@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
+import { PublicRequestError, fixtureWriteDisabledResponse, isMissingAuthSession, operationFailureResponse, runtimeFailureResponse, upstreamUnavailable } from "@/lib/runtime-configuration";
 import { getCurrentMember } from "@/lib/strata-app-data";
+import { canWriteRecords } from "@/lib/member-authorization";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
 import type { CardTypeDb, Json, VisibilityLevel, VoteValue } from "@/lib/supabase/types";
 
@@ -21,7 +23,7 @@ function nullableTextValue(value: unknown) {
 
 function requiredText(value: unknown, label: string) {
   if (typeof value !== "string" || !value.trim()) {
-    throw new Error(`${label} is required`);
+    throw new PublicRequestError("REQUEST_FIELD_REQUIRED", `${label} is required`);
   }
 
   return value.trim();
@@ -29,14 +31,6 @@ function requiredText(value: unknown, label: string) {
 
 function enumValue<T extends string>(value: unknown, allowed: readonly T[], fallback: T) {
   return typeof value === "string" && allowed.includes(value as T) ? (value as T) : fallback;
-}
-
-function fallbackResponse(action: string) {
-  return NextResponse.json({
-    mode: "fallback",
-    id: `mock-${action}-${Date.now()}`,
-    message: "Supabase env vars are not set, so the local fallback workflow returned a mock success",
-  });
 }
 
 export async function POST(request: NextRequest, context: { params: Promise<{ action: string }> }) {
@@ -47,20 +41,44 @@ export async function POST(request: NextRequest, context: { params: Promise<{ ac
   }
 
   const payload = (await request.json().catch(() => ({}))) as Record<string, unknown>;
-  const supabase = await getSupabaseServerClient();
+  let supabase;
+
+  try {
+    supabase = await getSupabaseServerClient();
+  } catch (error) {
+    return runtimeFailureResponse(error);
+  }
 
   if (!supabase) {
-    return fallbackResponse(action);
+    return fixtureWriteDisabledResponse();
   }
 
   const client = supabase;
-  const member = await getCurrentMember(client);
-  const {
-    data: { user },
-  } = await client.auth.getUser();
+  let member;
+  let user;
+
+  try {
+    member = await getCurrentMember(client);
+    const userResult = await client.auth.getUser();
+
+    if (userResult.error && !isMissingAuthSession(userResult.error)) {
+      throw upstreamUnavailable("SUPABASE_AUTH_UNAVAILABLE");
+    }
+
+    user = userResult.data.user;
+  } catch (error) {
+    return runtimeFailureResponse(error);
+  }
 
   if (!member || !user) {
     return NextResponse.json({ error: "Sign in as an active committee member to use writable workflows" }, { status: 401 });
+  }
+
+  if (!canWriteRecords(member.role, member.access_level)) {
+    return NextResponse.json(
+      { error: "This committee membership is read-only", code: "WRITE_CAPABILITY_REQUIRED" },
+      { status: 403 },
+    );
   }
 
   const activeMember = member;
@@ -100,7 +118,11 @@ export async function POST(request: NextRequest, context: { params: Promise<{ ac
       .maybeSingle();
 
     if (error || !data) {
-      throw new Error("Create a proposal before adding votes or approval conditions");
+      throw new PublicRequestError(
+        "PROPOSAL_REQUIRED",
+        "Create a proposal before adding votes or approval conditions",
+        409,
+      );
     }
 
     return data.id;
@@ -222,7 +244,9 @@ export async function POST(request: NextRequest, context: { params: Promise<{ ac
     });
     return NextResponse.json({ mode: "supabase", id, message: "Approval condition added and audited" });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Workflow action failed";
-    return NextResponse.json({ error: message }, { status: 400 });
+    return operationFailureResponse(error, {
+      code: "WORKFLOW_OPERATION_FAILED",
+      message: "The workflow operation could not be completed.",
+    });
   }
 }

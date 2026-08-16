@@ -1,15 +1,35 @@
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { chromium } from "@playwright/test";
+import {
+  assertBrowserMutationTargetAttestation,
+  assertSafeBrowserMutationTarget,
+} from "./target-environment-guard.mjs";
 
 loadEnv(".env.local");
 loadEnv(".env");
 
 const appUrl = process.env.STRATA_BROWSER_URL ?? "http://127.0.0.1:3000";
-const adminEmail = process.env.STRATA_ADMIN_EMAIL ?? "strata.admin@example.com";
-const adminPassword = process.env.STRATA_ADMIN_PASSWORD ?? "StrataAdmin123!";
-const memberEmail = process.env.STRATA_MEMBER_EMAIL ?? "strata.member@example.com";
-const memberPassword = process.env.STRATA_MEMBER_PASSWORD ?? "StrataMember123!";
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const adminEmail = process.env.STRATA_ADMIN_EMAIL ?? "strata.fixture.admin@example.invalid";
+const adminPassword = process.env.STRATA_ADMIN_PASSWORD ?? "LocalFixtureAdmin123!";
+const memberEmail = process.env.STRATA_MEMBER_EMAIL ?? "strata.fixture.member@example.invalid";
+const memberPassword = process.env.STRATA_MEMBER_PASSWORD ?? "LocalFixtureMember123!";
+
+if (!supabaseUrl) {
+  throw new Error("Set NEXT_PUBLIC_SUPABASE_URL for frontend browser verification.");
+}
+
+const mutationTarget = assertSafeBrowserMutationTarget({
+  appUrl,
+  supabaseUrl,
+  operation: "verify:frontend-qa-browser",
+});
+
+await assertBrowserMutationTargetAttestation({
+  target: mutationTarget,
+  operation: "verify:frontend-qa-browser",
+});
 
 function loadEnv(file) {
   const path = resolve(process.cwd(), file);

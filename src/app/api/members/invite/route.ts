@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { PublicRequestError, fixtureWriteDisabledResponse, isMissingAuthSession, operationFailureResponse, runtimeFailureResponse, upstreamUnavailable } from "@/lib/runtime-configuration";
 import { getCurrentMember } from "@/lib/strata-app-data";
 import {
   assertInviteCanBePrepared,
@@ -13,7 +14,7 @@ import type { MemberRole, MemberStatus } from "@/lib/supabase/types";
 
 function stringValue(value: unknown, label: string) {
   if (typeof value !== "string" || !value.trim()) {
-    throw new Error(`${label} is required`);
+    throw new PublicRequestError("REQUEST_FIELD_REQUIRED", `${label} is required`);
   }
 
   return value.trim();
@@ -24,25 +25,39 @@ function optionalEnum<T extends string>(value: unknown, allowed: Set<T>, fallbac
 }
 
 export async function POST(request: NextRequest) {
-  const supabase = await getSupabaseServerClient();
+  let supabase;
 
-  if (!supabase) {
-    return NextResponse.json({
-      mode: "fallback",
-      message: "Supabase env vars are not set, so the local fallback invite returned a mock success",
-    });
+  try {
+    supabase = await getSupabaseServerClient();
+  } catch (error) {
+    return runtimeFailureResponse(error);
   }
 
-  const member = await getCurrentMember(supabase);
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  if (!supabase) {
+    return fixtureWriteDisabledResponse();
+  }
+
+  let member;
+  let user;
+
+  try {
+    member = await getCurrentMember(supabase);
+    const userResult = await supabase.auth.getUser();
+
+    if (userResult.error && !isMissingAuthSession(userResult.error)) {
+      throw upstreamUnavailable("SUPABASE_AUTH_UNAVAILABLE");
+    }
+
+    user = userResult.data.user;
+  } catch (error) {
+    return runtimeFailureResponse(error);
+  }
 
   if (!member || !user) {
     return NextResponse.json({ error: "Sign in as an active admin member to invite committee users" }, { status: 401 });
   }
 
-  if (!canManageMembers(member.role)) {
+  if (!canManageMembers(member.role, member.access_level)) {
     return NextResponse.json({ error: "Only admin, chair, or secretary members can invite users" }, { status: 403 });
   }
 
@@ -113,16 +128,28 @@ export async function POST(request: NextRequest) {
       throw saveError;
     }
 
+    if (inviteResult.error) {
+      return NextResponse.json(
+        {
+          error: "The member invite row was saved, but the invite email could not be sent.",
+          code: "MEMBER_INVITE_EMAIL_FAILED",
+          member: savedMember,
+          inviteEmailSent: false,
+        },
+        { status: 502 },
+      );
+    }
+
     return NextResponse.json({
       mode: "supabase",
       member: savedMember,
-      inviteEmailSent: !inviteResult.error,
-      message: inviteResult.error
-        ? "Member invite row saved, but Supabase could not send the invite email"
-        : "Member invited and roster updated",
+      inviteEmailSent: true,
+      message: "Member invited and roster updated",
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Invite failed";
-    return NextResponse.json({ error: message }, { status: 400 });
+    return operationFailureResponse(error, {
+      code: "MEMBER_INVITE_FAILED",
+      message: "The member invite could not be completed.",
+    });
   }
 }

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { fixtureWriteDisabledResponse, isMissingAuthSession, operationFailureResponse, runtimeFailureResponse, upstreamUnavailable } from "@/lib/runtime-configuration";
 import { getSupabaseAdminClient } from "@/lib/supabase/admin";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
 
@@ -13,13 +14,16 @@ function bearerToken(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const supabase = await getSupabaseServerClient(bearerToken(request));
+  let supabase;
+
+  try {
+    supabase = await getSupabaseServerClient(bearerToken(request));
+  } catch (error) {
+    return runtimeFailureResponse(error);
+  }
 
   if (!supabase) {
-    return NextResponse.json({
-      mode: "fallback",
-      message: "Supabase env vars are not set, so the local fallback accept flow returned a mock success",
-    });
+    return fixtureWriteDisabledResponse();
   }
 
   const {
@@ -27,7 +31,11 @@ export async function POST(request: NextRequest) {
     error: userError,
   } = await supabase.auth.getUser();
 
-  if (userError || !user?.email) {
+  if (userError && !isMissingAuthSession(userError)) {
+    return runtimeFailureResponse(upstreamUnavailable("SUPABASE_AUTH_UNAVAILABLE"));
+  }
+
+  if (!user?.email) {
     return NextResponse.json({ error: "Sign in before accepting a committee invite" }, { status: 401 });
   }
 
@@ -48,7 +56,10 @@ export async function POST(request: NextRequest) {
     .maybeSingle();
 
   if (activeError) {
-    return NextResponse.json({ error: activeError.message }, { status: 400 });
+    return operationFailureResponse(activeError, {
+      code: "MEMBER_LOOKUP_FAILED",
+      message: "The active member lookup could not be completed.",
+    });
   }
 
   if (activeMember) {
@@ -64,7 +75,10 @@ export async function POST(request: NextRequest) {
     .limit(10);
 
   if (invitedError) {
-    return NextResponse.json({ error: invitedError.message }, { status: 400 });
+    return operationFailureResponse(invitedError, {
+      code: "MEMBER_INVITE_LOOKUP_FAILED",
+      message: "The pending invite lookup could not be completed.",
+    });
   }
 
   const invite = invitedRows?.find((row) => !row.user_id || row.user_id === user.id);
@@ -85,14 +99,25 @@ export async function POST(request: NextRequest) {
     .single();
 
   if (updateError) {
-    return NextResponse.json({ error: updateError.message }, { status: 400 });
+    return operationFailureResponse(updateError, {
+      code: "MEMBER_ACCEPT_FAILED",
+      message: "The member invite could not be accepted.",
+    });
   }
 
-  await admin.from("profiles").upsert({
+  const { error: profileError } = await admin.from("profiles").upsert({
     id: user.id,
     email,
     full_name: invite.full_name,
   });
+
+  if (profileError) {
+    return operationFailureResponse(profileError, {
+      code: "MEMBER_PROFILE_SYNC_FAILED",
+      message: "The member was activated, but profile synchronisation did not complete.",
+      status: 502,
+    });
+  }
 
   return NextResponse.json({
     mode: "supabase",

@@ -2,35 +2,42 @@ import { resolveServiceKey } from "./service-key.mjs";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { createClient } from "@supabase/supabase-js";
+import { assertSafeMutationTarget } from "./target-environment-guard.mjs";
+import { FIXTURE_IDS, FIXTURE_NAMESPACE } from "./fixture-identifiers.mjs";
 
-const COMMITTEE_ID = "11111111-1111-1111-1111-111111111111";
-const ADMIN_MEMBER_ID = "33333333-3333-3333-3333-333333333331";
-const MEMBER_ID = "33333333-3333-3333-3333-333333333332";
-const PROJECT_ID = "55555555-5555-5555-5555-555555555551";
-const ACCOUNT_ID = "12121212-1212-1212-1212-121212121251";
-const BUDGET_PERIOD_ID = "23232323-2323-2323-2323-232323232351";
-const BUDGET_LINE_ID = "34343434-3434-3434-3434-343434343451";
-const BUDGET_ALLOWANCE_ID = "45454545-4545-4545-4545-454545454551";
-const MILESTONE_ID = "56565656-5656-5656-5656-565656565651";
-const VARIATION_ID = "67676767-6767-6767-6767-676767676751";
-const INVOICE_ID = "78787878-7878-7878-7878-787878787851";
-const EXPENSE_ID = "89898989-8989-8989-8989-898989898951";
-const PUBLIC_CARD_ID = "44444444-4444-4444-4444-444444444441";
-const ADMIN_CARD_ID = "44444444-4444-4444-4444-444444444442";
-const CUSTOM_CARD_ID = "44444444-4444-4444-4444-444444444443";
-const PUBLIC_PROPOSAL_ID = "66666666-6666-6666-6666-666666666661";
-const ADMIN_PROPOSAL_ID = "66666666-6666-6666-6666-666666666662";
-const ADMIN_VOTE_ID = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaa1";
-const ADMIN_CONDITION_ID = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbb1";
-const ADMIN_MESSAGE_ID = "88888888-8888-8888-8888-888888888882";
-const ADMIN_AUDIT_ID = "99999999-9999-9999-9999-999999999992";
-const ADMIN_DOC_ID = "77777777-7777-7777-7777-777777777772";
-const WORKFLOW_CARD_ID = "44444444-4444-4444-4444-444444449991";
-const WORKFLOW_PROPOSAL_ID = "66666666-6666-6666-6666-666666669991";
-const WORKFLOW_MESSAGE_ID = "88888888-8888-8888-8888-888888889991";
-const WORKFLOW_VOTE_ID = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaa9991";
-const WORKFLOW_CONDITION_ID = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbb9991";
-const WORKFLOW_AUDIT_ID = "99999999-9999-9999-9999-999999999981";
+const {
+  committee: COMMITTEE_ID,
+  adminMember: ADMIN_MEMBER_ID,
+  member: MEMBER_ID,
+  project: PROJECT_ID,
+  account: ACCOUNT_ID,
+  budgetPeriod: BUDGET_PERIOD_ID,
+  budgetLine: BUDGET_LINE_ID,
+  budgetAllowance: BUDGET_ALLOWANCE_ID,
+  milestone: MILESTONE_ID,
+  variation: VARIATION_ID,
+  invoice: INVOICE_ID,
+  expense: EXPENSE_ID,
+  publicCard: PUBLIC_CARD_ID,
+  adminCard: ADMIN_CARD_ID,
+  customCard: CUSTOM_CARD_ID,
+  publicProposal: PUBLIC_PROPOSAL_ID,
+  adminProposal: ADMIN_PROPOSAL_ID,
+  adminVote: ADMIN_VOTE_ID,
+  adminCondition: ADMIN_CONDITION_ID,
+  adminMessage: ADMIN_MESSAGE_ID,
+  adminAudit: ADMIN_AUDIT_ID,
+  adminDocument: ADMIN_DOC_ID,
+  publicDocument: PUBLIC_DOC_ID,
+  publicMessage: PUBLIC_MESSAGE_ID,
+  publicAudit: PUBLIC_AUDIT_ID,
+  workflowCard: WORKFLOW_CARD_ID,
+  workflowProposal: WORKFLOW_PROPOSAL_ID,
+  workflowMessage: WORKFLOW_MESSAGE_ID,
+  workflowVote: WORKFLOW_VOTE_ID,
+  workflowCondition: WORKFLOW_CONDITION_ID,
+  workflowAudit: WORKFLOW_AUDIT_ID,
+} = FIXTURE_IDS;
 const WORKFLOW_MARKER = "seed-live-workspace-verification";
 
 loadEnv(".env.local");
@@ -42,14 +49,35 @@ const anonKey =
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 const serviceKey =
   resolveServiceKey();
-const adminEmail = process.env.STRATA_ADMIN_EMAIL ?? "strata.admin@example.com";
-const adminPassword = process.env.STRATA_ADMIN_PASSWORD ?? "StrataAdmin123!";
-const memberEmail = process.env.STRATA_MEMBER_EMAIL ?? "strata.member@example.com";
-const memberPassword = process.env.STRATA_MEMBER_PASSWORD ?? "StrataMember123!";
+const adminEmail = process.env.STRATA_ADMIN_EMAIL ?? "strata.fixture.admin@example.invalid";
+const adminPassword = process.env.STRATA_ADMIN_PASSWORD ?? "LocalFixtureAdmin123!";
+const memberEmail = process.env.STRATA_MEMBER_EMAIL ?? "strata.fixture.member@example.invalid";
+const memberPassword = process.env.STRATA_MEMBER_PASSWORD ?? "LocalFixtureMember123!";
 
 if (!url || !anonKey || !serviceKey) {
   throw new Error(
     "Set NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY, and SUPABASE_SECRET_KEY in .env.local before seeding.",
+  );
+}
+
+const mutationTarget = assertSafeMutationTarget({
+  url,
+  operation: "supabase:seed-live",
+});
+
+if (
+  mutationTarget.targetEnvironment === "staging" &&
+  (!process.env.STRATA_ADMIN_EMAIL ||
+    !process.env.STRATA_ADMIN_PASSWORD ||
+    !process.env.STRATA_MEMBER_EMAIL ||
+    !process.env.STRATA_MEMBER_PASSWORD ||
+    !adminEmail.endsWith(".invalid") ||
+    !memberEmail.endsWith(".invalid") ||
+    adminPassword === "LocalFixtureAdmin123!" ||
+    memberPassword === "LocalFixtureMember123!")
+) {
+  throw new Error(
+    "Remote staging fixtures require explicit .invalid emails and non-default admin/member passwords.",
   );
 }
 
@@ -113,10 +141,21 @@ async function ensureUser(email, password, fullName) {
   const existing = await findUserByEmail(email);
 
   if (existing) {
+    if (existing.app_metadata?.fixture_namespace !== FIXTURE_NAMESPACE) {
+      throw new Error(`Refusing to overwrite non-fixture Auth user ${email}.`);
+    }
+
     const { data, error } = await admin.auth.admin.updateUserById(existing.id, {
       password,
       email_confirm: true,
-      user_metadata: { full_name: fullName },
+      app_metadata: {
+        ...existing.app_metadata,
+        fixture_namespace: FIXTURE_NAMESPACE,
+      },
+      user_metadata: {
+        ...existing.user_metadata,
+        full_name: fullName,
+      },
     });
 
     if (error) {
@@ -130,6 +169,7 @@ async function ensureUser(email, password, fullName) {
     email,
     password,
     email_confirm: true,
+    app_metadata: { fixture_namespace: FIXTURE_NAMESPACE },
     user_metadata: { full_name: fullName },
   });
 
@@ -150,7 +190,29 @@ async function must(label, promise) {
   return data;
 }
 
+async function assertFixtureCommitteeNamespace() {
+  const existing = await must(
+    "fixture committee namespace lookup",
+    admin
+      .from("committees")
+      .select("id,name,strata_plan,jurisdiction,address")
+      .eq("id", COMMITTEE_ID)
+      .maybeSingle(),
+  );
+
+  if (
+    existing &&
+    (existing.name !== "Synthetic Strata Test Committee" ||
+      existing.strata_plan !== "SP TEST-0001" ||
+      existing.jurisdiction !== "NSW Australia" ||
+      existing.address !== "1 Example Street, Testville NSW 2000")
+  ) {
+    throw new Error("Refusing to overwrite a non-fixture committee namespace.");
+  }
+}
+
 async function seed() {
+  await assertFixtureCommitteeNamespace();
   const adminUser = await ensureUser(adminEmail, adminPassword, "Strata Admin");
   const memberUser = await ensureUser(memberEmail, memberPassword, "Strata Member");
 
@@ -158,10 +220,10 @@ async function seed() {
     "committee upsert",
     admin.from("committees").upsert({
       id: COMMITTEE_ID,
-      name: "SP 6430 - 33 Malvern Avenue",
-      strata_plan: "SP 6430",
+      name: "Synthetic Strata Test Committee",
+      strata_plan: "SP TEST-0001",
       jurisdiction: "NSW Australia",
-      address: "33 Malvern Avenue, Manly NSW 2095",
+      address: "1 Example Street, Testville NSW 2000",
     }),
   );
 
@@ -363,7 +425,7 @@ async function seed() {
     "documents upsert",
     admin.from("documents").upsert([
       {
-        id: "77777777-7777-7777-7777-777777777771",
+        id: PUBLIC_DOC_ID,
         committee_id: COMMITTEE_ID,
         title: "Registered by-laws",
         document_type: "By-laws",
@@ -395,7 +457,7 @@ async function seed() {
     "messages upsert",
     admin.from("messages").upsert([
       {
-        id: "88888888-8888-8888-8888-888888888881",
+        id: PUBLIC_MESSAGE_ID,
         committee_id: COMMITTEE_ID,
         card_id: PUBLIC_CARD_ID,
         author_member_id: ADMIN_MEMBER_ID,
@@ -460,7 +522,7 @@ async function seed() {
     "audit upsert",
     admin.from("audit_log").upsert([
       {
-        id: "99999999-9999-9999-9999-999999999991",
+        id: PUBLIC_AUDIT_ID,
         committee_id: COMMITTEE_ID,
         card_id: PUBLIC_CARD_ID,
         user_id: adminUser.id,

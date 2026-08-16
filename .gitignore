@@ -22,6 +22,10 @@
 /.eve/
 /.output/
 
+# Supabase CLI local state
+/supabase/.branches/
+/supabase/.temp/
+
 # misc
 .DS_Store
 *.pem

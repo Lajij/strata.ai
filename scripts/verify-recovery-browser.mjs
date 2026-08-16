@@ -5,6 +5,10 @@ import { chromium } from "@playwright/test";
 import { createClient } from "@supabase/supabase-js";
 
 import { resolveServiceKey } from "./service-key.mjs";
+import {
+  assertBrowserMutationTargetAttestation,
+  assertSafeBrowserMutationTarget,
+} from "./target-environment-guard.mjs";
 
 loadEnv(".env.local");
 loadEnv(".env");
@@ -25,6 +29,17 @@ if (!appUrl) {
 if (!supabaseUrl || !serviceKey) {
   throw new Error("Set NEXT_PUBLIC_SUPABASE_URL and a valid server-side Supabase key for recovery verification.");
 }
+
+const mutationTarget = assertSafeBrowserMutationTarget({
+  appUrl,
+  supabaseUrl,
+  operation: "verify:recovery-browser",
+});
+
+await assertBrowserMutationTargetAttestation({
+  target: mutationTarget,
+  operation: "verify:recovery-browser",
+});
 
 const service = createClient(supabaseUrl, serviceKey, {
   auth: { autoRefreshToken: false, persistSession: false },
@@ -89,7 +104,7 @@ async function cleanup(userId) {
 }
 
 async function setupRecoveryMember() {
-  const adminEmail = process.env.STRATA_ADMIN_EMAIL ?? "strata.admin@example.com";
+  const adminEmail = process.env.STRATA_ADMIN_EMAIL ?? "strata.fixture.admin@example.invalid";
   const adminMember = await must(
     "admin committee lookup",
     service

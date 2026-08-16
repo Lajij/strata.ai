@@ -1,6 +1,7 @@
 import { resolveServiceKey } from "./service-key.mjs";
 import { existsSync, readFileSync } from "node:fs";
 import { createClient } from "@supabase/supabase-js";
+import { assertSafeMutationTarget } from "./target-environment-guard.mjs";
 
 function loadEnv(file) {
   if (!existsSync(file)) {
@@ -34,6 +35,14 @@ const result = {
   anonRest: null,
   serviceRoleRest: null,
 };
+
+if (present(url) && (present(anonKey) || present(serviceRoleKey))) {
+  assertSafeMutationTarget({
+    url,
+    operation: "test-supabase-connection",
+    env,
+  });
+}
 
 if (present(url) && present(anonKey)) {
   const anon = createClient(url, anonKey, {

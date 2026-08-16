@@ -7,7 +7,9 @@ import {
   type AiContextBundle,
   type AiTask,
 } from "@/lib/ai/context";
+import { RuntimeBoundaryError, resolveAiReleaseMode, runtimeFailureResponse } from "@/lib/runtime-configuration";
 import { getCurrentMember } from "@/lib/strata-app-data";
+import { canWriteRecords } from "@/lib/member-authorization";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
 import type { Json } from "@/lib/supabase/types";
 
@@ -15,7 +17,6 @@ export const runtime = "nodejs";
 export const maxDuration = 30;
 
 const model = process.env.STRATA_AI_MODEL ?? "openai/gpt-5.4";
-const releaseAiMode = process.env.STRATA_AI_RELEASE_MODE === "live" ? "live" : "fallback";
 const supportedTasks = new Set<AiTask>([
   "card-brief",
   "thread-summary",
@@ -65,8 +66,8 @@ function hasGatewayCredentials() {
   return Boolean(process.env.VERCEL_OIDC_TOKEN || process.env.AI_GATEWAY_API_KEY);
 }
 
-function shouldUseFallback(body: Record<string, unknown>) {
-  return body.forceFallback === "true" || releaseAiMode !== "live" || !hasGatewayCredentials();
+function shouldUseFallback(releaseMode: "live" | "fallback") {
+  return releaseMode === "fallback";
 }
 
 function textValue(value: unknown) {
@@ -264,6 +265,10 @@ async function persistAiOutput({
     return { persisted: false };
   }
 
+  if (!canWriteRecords(member.role, member.access_level)) {
+    return { persisted: false };
+  }
+
   const cardId = textValue(body.cardId) ?? null;
   const documentId = textValue(body.documentId) ?? null;
   const projectId = textValue(body.projectId) ?? null;
@@ -295,7 +300,7 @@ async function persistAiOutput({
     .single();
 
   if (error) {
-    return { persisted: false, error: error.message };
+    return { persisted: false, errorCode: "AI_OUTPUT_PERSIST_FAILED" };
   }
 
   await supabase.from("audit_log").insert({
@@ -381,15 +386,29 @@ export async function POST(request: Request, context: { params: Promise<{ task: 
   }
 
   const task = rawTask as AiTask;
+  let releaseAiMode: "live" | "fallback";
+
+  try {
+    releaseAiMode = resolveAiReleaseMode();
+  } catch (error) {
+    return runtimeFailureResponse(error);
+  }
+
   const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
   const accessToken = request.headers.get("authorization")?.replace(/^Bearer\s+/i, "");
-  const contextBundle = await buildVisibleAiContext({
-    task,
-    cardId: textValue(body.cardId),
-    documentId: textValue(body.documentId),
-    projectId: textValue(body.projectId),
-    question: textValue(body.question),
-  }, accessToken);
+  let contextBundle: AiContextBundle;
+
+  try {
+    contextBundle = await buildVisibleAiContext({
+      task,
+      cardId: textValue(body.cardId),
+      documentId: textValue(body.documentId),
+      projectId: textValue(body.projectId),
+      question: textValue(body.question),
+    }, accessToken);
+  } catch (error) {
+    return runtimeFailureResponse(error);
+  }
 
   if (contextBundle.source === "supabase" && !requestedRecordIsVisible(contextBundle, body)) {
     return Response.json(
@@ -405,7 +424,7 @@ export async function POST(request: Request, context: { params: Promise<{ task: 
   const providerMetadata = {
     task,
     release_mode: releaseAiMode,
-    forced_fallback: body.forceFallback === "true",
+    forced_fallback: false,
     gateway_credentials_present: hasGatewayCredentials(),
   };
 
@@ -428,7 +447,7 @@ export async function POST(request: Request, context: { params: Promise<{ task: 
     return Response.json({ ...refusal, status: "error", created_mode: "refusal", ...persistence }, { status: 422 });
   }
 
-  if (shouldUseFallback(body)) {
+  if (shouldUseFallback(releaseAiMode)) {
     const mockResponse = fallback(task, contextBundle, body);
     const persistence = await persistAiOutput({
       task,
@@ -443,6 +462,15 @@ export async function POST(request: Request, context: { params: Promise<{ task: 
       providerMetadata,
     });
     return Response.json({ ...mockResponse, status: "completed", created_mode: "mock", ...persistence });
+  }
+
+  if (!hasGatewayCredentials()) {
+    return runtimeFailureResponse(
+      new RuntimeBoundaryError(
+        "AI_GATEWAY_CONFIGURATION_MISSING",
+        "Live AI is enabled but its gateway credentials are unavailable.",
+      ),
+    );
   }
 
   try {
@@ -472,28 +500,30 @@ export async function POST(request: Request, context: { params: Promise<{ task: 
     return Response.json({ ...response, status: "completed", created_mode: "live", ...persistence });
   } catch (error) {
     const sanitizedError = sanitizeErrorMessage(error);
-    const mockResponse = fallback(task, contextBundle, body);
     const persistence = await persistAiOutput({
       task,
       prompt,
-      response: { ...mockResponse, error: sanitizedError },
+      response: { error: sanitizedError },
       body,
       contextBundle,
       accessToken,
       status: "error",
       durationMs: Date.now() - startedAt,
-      createdMode: "error-fallback",
+      createdMode: "error",
       errorMessage: sanitizedError,
       providerMetadata,
     });
 
-    return Response.json({
-      ...mockResponse,
-      mode: "error-fallback",
-      status: "error",
-      created_mode: "error-fallback",
-      error: sanitizedError,
-      ...persistence,
-    });
+    return Response.json(
+      {
+        mode: "error",
+        status: "error",
+        created_mode: "error",
+        error: "The AI provider request failed. No mock answer was substituted.",
+        code: "AI_PROVIDER_UNAVAILABLE",
+        ...persistence,
+      },
+      { status: 502 },
+    );
   }
 }

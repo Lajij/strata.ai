@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { PublicRequestError, fixtureWriteDisabledResponse, isMissingAuthSession, operationFailureResponse, runtimeFailureResponse, upstreamUnavailable } from "@/lib/runtime-configuration";
 import { getCurrentMember } from "@/lib/strata-app-data";
 import {
   assertMemberLifecycleTransition,
@@ -13,7 +14,7 @@ import type { MemberRole, MemberStatus } from "@/lib/supabase/types";
 
 function stringValue(value: unknown, label: string) {
   if (typeof value !== "string" || !value.trim()) {
-    throw new Error(`${label} is required`);
+    throw new PublicRequestError("REQUEST_FIELD_REQUIRED", `${label} is required`);
   }
 
   return value.trim();
@@ -21,32 +22,46 @@ function stringValue(value: unknown, label: string) {
 
 function enumValue<T extends string>(value: unknown, allowed: Set<T>, label: string) {
   if (typeof value !== "string" || !allowed.has(value as T)) {
-    throw new Error(`${label} is invalid`);
+    throw new PublicRequestError("REQUEST_FIELD_INVALID", `${label} is invalid`);
   }
 
   return value as T;
 }
 
 export async function POST(request: NextRequest) {
-  const supabase = await getSupabaseServerClient();
+  let supabase;
 
-  if (!supabase) {
-    return NextResponse.json({
-      mode: "fallback",
-      message: "Supabase env vars are not set, so the local fallback member update returned a mock success",
-    });
+  try {
+    supabase = await getSupabaseServerClient();
+  } catch (error) {
+    return runtimeFailureResponse(error);
   }
 
-  const member = await getCurrentMember(supabase);
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  if (!supabase) {
+    return fixtureWriteDisabledResponse();
+  }
+
+  let member;
+  let user;
+
+  try {
+    member = await getCurrentMember(supabase);
+    const userResult = await supabase.auth.getUser();
+
+    if (userResult.error && !isMissingAuthSession(userResult.error)) {
+      throw upstreamUnavailable("SUPABASE_AUTH_UNAVAILABLE");
+    }
+
+    user = userResult.data.user;
+  } catch (error) {
+    return runtimeFailureResponse(error);
+  }
 
   if (!member || !user) {
     return NextResponse.json({ error: "Sign in as an active admin member to manage committee users" }, { status: 401 });
   }
 
-  if (!canManageMembers(member.role)) {
+  if (!canManageMembers(member.role, member.access_level)) {
     return NextResponse.json({ error: "Only admin, chair, or secretary members can manage users" }, { status: 403 });
   }
 
@@ -66,11 +81,15 @@ export async function POST(request: NextRequest) {
       .single();
 
     if (targetError || !target) {
-      throw new Error(targetError?.message ?? "Member was not found");
+      throw new PublicRequestError("MEMBER_NOT_FOUND", "Member was not found", 404);
     }
 
     if (target.id === member.id && (target.role !== role || target.status !== status || target.access_level !== accessLevel)) {
-      throw new Error("You cannot change your own role, access level, or active status");
+      throw new PublicRequestError(
+        "MEMBER_SELF_LOCKOUT_FORBIDDEN",
+        "You cannot change your own role, access level, or active status",
+        409,
+      );
     }
 
     assertMemberLifecycleTransition(target.status, status, Boolean(target.user_id));
@@ -95,10 +114,12 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       mode: "supabase",
       member: updated,
-      message: "Member access updated and audited",
+      message: "Member access updated",
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Member update failed";
-    return NextResponse.json({ error: message }, { status: 400 });
+    return operationFailureResponse(error, {
+      code: "MEMBER_UPDATE_FAILED",
+      message: "The member update could not be completed.",
+    });
   }
 }

@@ -20,6 +20,7 @@ import {
   type VendorRecord,
   type Visibility,
 } from "@/lib/strata-data";
+import { isMissingAuthSession, upstreamUnavailable } from "@/lib/runtime-configuration";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
 import type {
   CardStatusDb,
@@ -668,7 +669,12 @@ function mapAudit(row: AuditQueryRow): AuditEvent {
 export async function getCurrentMember(supabase: AppSupabase): Promise<CurrentMember | null> {
   const {
     data: { user },
+    error: userError,
   } = await supabase.auth.getUser();
+
+  if (userError && !isMissingAuthSession(userError)) {
+    throw upstreamUnavailable("SUPABASE_AUTH_UNAVAILABLE");
+  }
 
   if (!user) {
     return null;
@@ -682,7 +688,11 @@ export async function getCurrentMember(supabase: AppSupabase): Promise<CurrentMe
     .limit(1)
     .maybeSingle();
 
-  if (error || !data) {
+  if (error) {
+    throw upstreamUnavailable("SUPABASE_MEMBER_QUERY_FAILED");
+  }
+
+  if (!data) {
     return null;
   }
 
@@ -693,7 +703,10 @@ export async function getStrataAppData(accessToken?: string): Promise<StrataAppD
   const supabase = await getSupabaseServerClient(accessToken);
 
   if (!supabase) {
-    return fallbackAppData;
+    return {
+      ...fallbackAppData,
+      sourceDetail: "Explicit synthetic fixture mode",
+    };
   }
 
   const member = await getCurrentMember(supabase);
@@ -825,10 +838,7 @@ export async function getStrataAppData(accessToken?: string): Promise<StrataAppD
     quoteReviewsResult.error ||
     membersResult.error
   ) {
-    return {
-      ...fallbackAppData,
-      sourceDetail: "Supabase query failed; using local fallback data",
-    };
+    throw upstreamUnavailable("SUPABASE_APP_DATA_QUERY_FAILED");
   }
 
   const supabaseCards = (cardsResult.data ?? []) as unknown as CardQueryRow[];

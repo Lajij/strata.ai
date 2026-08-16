@@ -12,6 +12,13 @@
     "start": "next start",
     "lint": "eslint",
     "verify:fallback-build": "node scripts/verify-fallback-build.mjs",
+    "verify:fail-closed": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types scripts/verify-fail-closed.mjs && node --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --experimental-loader ./scripts/test-alias-loader.mjs scripts/verify-fail-closed-routes.mjs && STRATA_TEST_UPSTREAM_FAILURES=1 node --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --experimental-loader ./scripts/test-alias-loader.mjs scripts/verify-upstream-failures.mjs && node scripts/verify-mutation-targets.mjs",
+    "verify:mutation-targets": "node scripts/verify-mutation-targets.mjs",
+    "verify:migrations": "node scripts/verify-migrations.mjs",
+    "verify:migrations:reconciliation": "node scripts/verify-migration-reconciliation.mjs",
+    "verify:migrations:replay": "node scripts/verify-migrations-replay.mjs",
+    "supabase:push:dry-run": "node scripts/safe-supabase-push.mjs --dry-run",
+    "supabase:push:schema": "node scripts/safe-supabase-push.mjs",
     "verify:production-ready": "node scripts/verify-production-ready.mjs",
     "verify:auth-flow": "node scripts/verify-auth-flow.mjs",
     "verify:recovery": "node scripts/verify-recovery-source.mjs",
@@ -70,6 +77,7 @@
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.3.0",
+    "supabase": "2.111.0",
     "tailwindcss": "4.3.3",
     "typescript": "^5"
   }

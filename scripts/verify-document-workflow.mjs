@@ -1,19 +1,21 @@
 import { resolveServiceKey } from "./service-key.mjs";
+import { FIXTURE_IDS } from "./fixture-identifiers.mjs";
+import { assertSafeMutationTarget } from "./target-environment-guard.mjs";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { createClient } from "@supabase/supabase-js";
 
-const COMMITTEE_ID = "11111111-1111-1111-1111-111111111111";
-const MEMBER_ID = "33333333-3333-3333-3333-333333333332";
-const ADMIN_MEMBER_ID = "33333333-3333-3333-3333-333333333331";
+const COMMITTEE_ID = FIXTURE_IDS.committee;
+const MEMBER_ID = FIXTURE_IDS.member;
+const ADMIN_MEMBER_ID = FIXTURE_IDS.adminMember;
 const VISIBLE_DOC_ID = "77777777-7777-7777-7777-777777779981";
 const VISIBLE_ATTACHMENT_ID = "cccccccc-cccc-cccc-cccc-cccccccc9981";
 const PENDING_DOC_ID = "77777777-7777-7777-7777-777777779983";
 const PENDING_ATTACHMENT_ID = "cccccccc-cccc-cccc-cccc-cccccccc9983";
 const HIDDEN_DOC_ID = "77777777-7777-7777-7777-777777779982";
 const HIDDEN_ATTACHMENT_ID = "cccccccc-cccc-cccc-cccc-cccccccc9982";
-const CARD_ID = "44444444-4444-4444-4444-444444444441";
-const PROJECT_ID = "55555555-5555-5555-5555-555555555551";
+const CARD_ID = FIXTURE_IDS.publicCard;
+const PROJECT_ID = FIXTURE_IDS.project;
 const BUCKET = "strata-documents";
 const VISIBLE_OBJECT_PATH = `${COMMITTEE_ID}/${VISIBLE_DOC_ID}/visible-document-workflow.txt`;
 const PENDING_OBJECT_PATH = `${COMMITTEE_ID}/${PENDING_DOC_ID}/pending-extraction-workflow.pdf`;
@@ -28,12 +30,17 @@ const anonKey =
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 const serviceKey =
   resolveServiceKey();
-const memberEmail = process.env.STRATA_MEMBER_EMAIL ?? "strata.member@example.com";
-const memberPassword = process.env.STRATA_MEMBER_PASSWORD ?? "StrataMember123!";
+const memberEmail = process.env.STRATA_MEMBER_EMAIL ?? "strata.fixture.member@example.invalid";
+const memberPassword = process.env.STRATA_MEMBER_PASSWORD ?? "LocalFixtureMember123!";
 
 if (!url || !anonKey || !serviceKey) {
   throw new Error("Set NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY, and SUPABASE_SECRET_KEY.");
 }
+
+assertSafeMutationTarget({
+  url,
+  operation: "verify:document-workflow",
+});
 
 const admin = createClient(url, serviceKey, {
   auth: { autoRefreshToken: false, persistSession: false },
