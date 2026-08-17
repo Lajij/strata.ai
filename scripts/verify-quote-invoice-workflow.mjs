@@ -84,11 +84,17 @@ for (const action of ["create-vendor", "create-invoice", "create-quote-review"])
 assert(financeRoute.includes("getSupabaseServerClient"), "Finance route must use the shared Supabase server client");
 assert(!financeRoute.includes("SUPABASE_SERVICE_ROLE_KEY"), "Finance route must not use service-role key");
 assert(!financeRoute.includes("SUPABASE_SECRET_KEY"), "Finance route must not use secret key");
-assert(componentSource.includes("FinanceWorkflowTools"), "Budget UI must include finance workflow tools");
-assert(componentSource.includes("Create invoice"), "UI must expose invoice creation");
-assert(componentSource.includes("Create quote review"), "UI must expose quote review creation");
-assert(componentSource.includes("project.invoices"), "Project UI must show linked invoices");
-assert(componentSource.includes("project.quoteReviews"), "Project UI must show linked quote reviews");
+// Track E finance-workflow creation UI is deferred post-v1 by signed decision
+// #8 = "defer-track-e-post-v1" (DECISIONS-REQUIRED.md row 8): the
+// FinanceWorkflowTools component (the "Create invoice" / "Create quote review"
+// actions, and the project.invoices / project.quoteReviews displays) is
+// intentionally not shipped. Per GO-NO-GO.md, "none of their deferred
+// capabilities may be represented as shipped," and GRAPH-PLAN.md classifies this
+// script as a "predecessor pattern, not coverage" for the deferred Track E UI.
+// The prior positive assertions that required this UI to ship in strata-app.tsx
+// are deliberately dropped, not forgotten. The guard below enforces the
+// deferral for the one Track E-specific identifier this shell reads.
+assert(!componentSource.includes("FinanceWorkflowTools"), "Track E finance-workflow creation UI must not be represented as shipped in v1 (deferred post-v1 by signed decision #8)");
 assert(dataSource.includes("mapInvoices"), "App data must map invoices");
 assert(dataSource.includes("mapQuoteReviews"), "App data must map quote reviews");
 assert(dataSource.includes('.from("vendors")'), "App data must read vendors");
