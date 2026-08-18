@@ -82,7 +82,7 @@ export function CardsPage() {
               value={area}
               onValueChange={(v) => setArea(v as string)}
             >
-              <SelectTrigger size="sm" className="h-11 md:h-9">
+              <SelectTrigger size="sm" className="h-11 md:h-9" aria-label="Filter by area">
                 <SlidersHorizontal className="size-4 text-muted-foreground" />
                 <SelectValue />
               </SelectTrigger>
