@@ -1,28 +1,21 @@
 import {
   AlertTriangle,
-  Archive,
   Banknote,
   BookOpen,
   Building2,
   CircleDollarSign,
   ClipboardCheck,
-  Clock3,
   FileCheck2,
   FileText,
   FolderKanban,
   Gavel,
-  HardHat,
-  Home,
   Inbox,
   Landmark,
   ListChecks,
   LockKeyhole,
-  LucideIcon,
   MessagesSquare,
   Scale,
-  ShieldAlert,
   Sparkles,
-  Users,
   Vote,
 } from "lucide-react";
 
@@ -57,6 +50,7 @@ export type Visibility = "All members" | "Admins only" | "Selected members";
 
 export interface GovernanceCard {
   id: string;
+  sourceRefs?: string[];
   title: string;
   type: CardType;
   status: CardStatus;
@@ -97,6 +91,7 @@ export interface RiskItem {
 
 export interface DocumentRecord {
   id: string;
+  sourceRefs?: string[];
   name: string;
   type: string;
   date: string;
@@ -112,6 +107,7 @@ export interface DocumentRecord {
 
 export interface Project {
   id: string;
+  sourceRefs?: string[];
   name: string;
   status: "At risk" | "On track" | "Needs decision";
   plannedScope: string;
@@ -159,6 +155,7 @@ export interface QuoteReviewSummary {
 }
 
 export interface BudgetLine {
+  sourceRefs?: string[];
   category: string;
   account: string;
   approved: number;
@@ -200,6 +197,7 @@ export interface Member {
 }
 
 export interface AuditEvent {
+  id?: string;
   actor: string;
   action: string;
   target: string;
@@ -207,17 +205,6 @@ export interface AuditEvent {
   cardId?: string;
   detail?: string;
 }
-
-export const navItems: { key: NavKey; label: string; icon: LucideIcon }[] = [
-  { key: "dashboard", label: "Dashboard", icon: Home },
-  { key: "cards", label: "Cards", icon: FolderKanban },
-  { key: "documents", label: "Documents", icon: Archive },
-  { key: "projects", label: "Projects", icon: HardHat },
-  { key: "budget", label: "Budget", icon: CircleDollarSign },
-  { key: "incidents", label: "Incidents", icon: ShieldAlert },
-  { key: "members", label: "Members", icon: Users },
-  { key: "activity", label: "Activity", icon: Clock3 },
-];
 
 export const statusTone: Record<string, StatusTone> = {
   Open: "blue",
