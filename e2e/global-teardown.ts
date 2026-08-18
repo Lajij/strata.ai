@@ -20,43 +20,47 @@ import { cleanupE2eRecords, MARKER_PREFIX } from "./lib/cleanup";
 
 const OPERATION = "playwright:e2e:teardown";
 
-loadEnv(".env.local");
-loadEnv(".env");
+async function teardown() {
+  loadEnv(".env.local");
+  loadEnv(".env");
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const serviceKey = resolveServiceKey();
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceKey = resolveServiceKey();
 
-if (!supabaseUrl || !serviceKey) {
-  // Nothing was provisioned without a service key; nothing to clean.
-  console.log("[e2e globalTeardown] no service key configured; skipping cleanup.");
-} else {
-  let skipCleanup = false;
+  if (!supabaseUrl || !serviceKey) {
+    // Nothing was provisioned without a service key; nothing to clean.
+    console.log("[e2e globalTeardown] no service key configured; skipping cleanup.");
+  } else {
+    let skipCleanup = false;
 
-  try {
-    assertSafeBrowserMutationTarget({
-      appUrl: APP_URL,
-      supabaseUrl,
-      operation: OPERATION,
-    });
-  } catch (error) {
-    if (error instanceof UnsafeMutationTargetError) {
-      console.warn(
-        `[e2e globalTeardown] refusing to clean a forbidden target (${error.code}); skipping.`,
-      );
-      skipCleanup = true;
+    try {
+      assertSafeBrowserMutationTarget({
+        appUrl: APP_URL,
+        supabaseUrl,
+        operation: OPERATION,
+      });
+    } catch (error) {
+      if (error instanceof UnsafeMutationTargetError) {
+        console.warn(
+          `[e2e globalTeardown] refusing to clean a forbidden target (${error.code}); skipping.`,
+        );
+        skipCleanup = true;
+      } else {
+        throw error;
+      }
+    }
+
+    if (!skipCleanup) {
+      const service = createClient(supabaseUrl, serviceKey, {
+        auth: { autoRefreshToken: false, persistSession: false },
+      });
+
+      await cleanupE2eRecords(service, MARKER_PREFIX);
+      console.log("[e2e globalTeardown] marker-scoped cleanup complete.");
     } else {
-      throw error;
+      console.log("[e2e globalTeardown] complete (no cleanup performed).");
     }
   }
-
-  if (!skipCleanup) {
-    const service = createClient(supabaseUrl, serviceKey, {
-      auth: { autoRefreshToken: false, persistSession: false },
-    });
-
-    await cleanupE2eRecords(service, MARKER_PREFIX);
-    console.log("[e2e globalTeardown] marker-scoped cleanup complete.");
-  } else {
-    console.log("[e2e globalTeardown] complete (no cleanup performed).");
-  }
 }
+
+export default teardown;
