@@ -120,37 +120,11 @@ jobs:
         run: |
           set -euo pipefail
           npx supabase status -o env \
-            --override-name api.url=NEXT_PUBLIC_SUPABASE_URL \
-            --override-name api.anon_key=NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY \
-            --override-name api.service_role_key=SUPABASE_SECRET_KEY \
+            --override-name API_URL=NEXT_PUBLIC_SUPABASE_URL \
+            --override-name ANON_KEY=NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY \
+            --override-name SERVICE_ROLE_KEY=SUPABASE_SECRET_KEY \
             > /tmp/supabase.env
-          node -e '
-            const fs = require("fs");
-            const out = fs.readFileSync("/tmp/supabase.env", "utf8");
-            const wanted = new Set([
-              "NEXT_PUBLIC_SUPABASE_URL",
-              "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY",
-              "SUPABASE_SECRET_KEY",
-            ]);
-            const aliases = {
-              API_URL: "NEXT_PUBLIC_SUPABASE_URL",
-              ANON_KEY: "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY",
-              SERVICE_ROLE_KEY: "SUPABASE_SECRET_KEY",
-            };
-            const fd = fs.openSync(process.env.GITHUB_ENV, "a");
-            for (const raw of out.split("\n")) {
-              const line = raw.replace(/^\s*export\s+/, "").trim();
-              const idx = line.indexOf("=");
-              if (idx === -1) continue;
-              let key = line.slice(0, idx);
-              let val = line.slice(idx + 1).trim();
-              if ((val.startsWith("\"") && val.endsWith("\"")) || (val.startsWith("'") && val.endsWith("'"))) {
-                val = val.slice(1, -1);
-              }
-              if (aliases[key]) key = aliases[key];
-              if (wanted.has(key)) fs.writeSync(fd, key + "=" + val + "\n");
-            }
-          '
+          cat /tmp/supabase.env >> "$GITHUB_ENV"
       - name: Seed live workspace
         run: npm run supabase:seed-live
       - name: Install Playwright browser
