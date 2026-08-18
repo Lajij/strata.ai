@@ -119,12 +119,29 @@ jobs:
       - name: Capture local Supabase keys
         run: |
           set -euo pipefail
-          npx supabase status -o env \
-            --override-name API_URL=NEXT_PUBLIC_SUPABASE_URL \
-            --override-name ANON_KEY=NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY \
-            --override-name SERVICE_ROLE_KEY=SUPABASE_SECRET_KEY \
-            > /tmp/supabase.env
-          cat /tmp/supabase.env >> "$GITHUB_ENV"
+          npx supabase status -o env > /tmp/supabase.env
+          node -e '
+            const fs = require("fs");
+            const content = fs.readFileSync("/tmp/supabase.env", "utf8");
+            const mapping = {
+              API_URL: "NEXT_PUBLIC_SUPABASE_URL",
+              PUBLISHABLE_KEY: "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY",
+              SECRET_KEY: "SUPABASE_SECRET_KEY",
+            };
+            const lines = content.split("\n");
+            const result = [];
+            for (const line of lines) {
+              const trimmed = line.replace(/^export\s+/, "").trim();
+              if (!trimmed || !trimmed.includes("=")) continue;
+              const eqIdx = trimmed.indexOf("=");
+              const key = trimmed.slice(0, eqIdx);
+              const value = trimmed.slice(eqIdx + 1);
+              if (mapping[key]) {
+                result.push(mapping[key] + "=" + value);
+              }
+            }
+            fs.appendFileSync(process.env.GITHUB_ENV, result.join("\n") + "\n");
+          '
       - name: Seed live workspace
         run: npm run supabase:seed-live
       - name: Install Playwright browser
