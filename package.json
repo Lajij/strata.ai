@@ -10,6 +10,8 @@
     "verify:fallback-build": "node scripts/verify-fallback-build.mjs",
     "verify:production-ready": "node scripts/verify-production-ready.mjs",
     "verify:auth-flow": "node scripts/verify-auth-flow.mjs",
+    "verify:recovery": "node scripts/verify-recovery-source.mjs",
+    "verify:recovery-browser": "node scripts/verify-recovery-browser.mjs",
     "verify:member-management": "node scripts/verify-member-management.mjs",
     "verify:budget": "node scripts/verify-budget-workflow.mjs",
     "verify:quote-invoice": "node scripts/verify-quote-invoice-workflow.mjs",
