@@ -119,32 +119,10 @@ jobs:
       - name: Capture local Supabase keys
         run: |
           set -euo pipefail
-          npx supabase status -o env > /tmp/supabase.env
-          node -e '
-            const fs = require("fs");
-            const content = fs.readFileSync("/tmp/supabase.env", "utf8");
-            const mapping = {
-              API_URL: "NEXT_PUBLIC_SUPABASE_URL",
-              PUBLISHABLE_KEY: "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY",
-              SERVICE_ROLE_KEY: "SUPABASE_SECRET_KEY",
-            };
-            const lines = content.split("\n");
-            const result = [];
-            for (const line of lines) {
-              const trimmed = line.replace(/^export\s+/, "").trim();
-              if (!trimmed || !trimmed.includes("=")) continue;
-              const eqIdx = trimmed.indexOf("=");
-              const key = trimmed.slice(0, eqIdx);
-              let value = trimmed.slice(eqIdx + 1);
-              if ((value.startsWith("\"") && value.endsWith("\"")) || (value.startsWith("'"'"'") && value.endsWith("'"'"'"))) {
-                value = value.slice(1, -1);
-              }
-              if (mapping[key]) {
-                result.push(mapping[key] + "=" + value);
-              }
-            }
-            fs.appendFileSync(process.env.GITHUB_ENV, result.join("\n") + "\n");
-          '
+          eval "$(npx supabase status -o env)"
+          echo "NEXT_PUBLIC_SUPABASE_URL=$API_URL" >> "$GITHUB_ENV"
+          echo "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=$PUBLISHABLE_KEY" >> "$GITHUB_ENV"
+          echo "SUPABASE_SECRET_KEY=$SERVICE_ROLE_KEY" >> "$GITHUB_ENV"
       - name: Seed live workspace
         run: npm run supabase:seed-live
       - name: Install Playwright browser
