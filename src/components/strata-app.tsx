@@ -29,6 +29,7 @@ import {
   Upload,
   Vote,
 } from "lucide-react";
+import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
 import { MessageResponse } from "@/components/ai-elements/message";
@@ -417,6 +418,9 @@ function AuthControl({
         <LogIn className="h-3.5 w-3.5" />
         Sign in
       </button>
+      <Link href="/recover" prefetch={false} className="text-xs text-slate-500 underline-offset-2 hover:underline">
+        Forgot password?
+      </Link>
       <span className="min-w-32 text-xs text-slate-500" aria-live="polite">
         {status}
       </span>
