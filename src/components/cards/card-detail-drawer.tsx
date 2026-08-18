@@ -132,7 +132,7 @@ function VoteSummary({ card }: { card: Extract<Card, { type: "vote" }> }) {
             {card.participation} / {card.eligibleCount} ({participationPct(card)}%)
           </span>
         </div>
-        <Progress value={participationPct(card)} />
+        <Progress value={participationPct(card)} aria-label="Vote participation" />
         <span className="text-xs text-muted-foreground">{card.eligibility}</span>
       </div>
       <div className="flex items-center justify-between">
