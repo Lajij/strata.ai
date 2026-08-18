@@ -337,6 +337,48 @@ async function seed() {
   );
 
   await must(
+    "cards upsert",
+    admin.from("cards").upsert([
+      {
+        id: PUBLIC_CARD_ID,
+        committee_id: COMMITTEE_ID,
+        title: "Live fire door approval",
+        description: "Seeded visible card for live Supabase/RLS verification.",
+        type: "quote",
+        status: "pending_vote",
+        visibility: "all",
+        creator_member_id: ADMIN_MEMBER_ID,
+        linked_project_id: PROJECT_ID,
+      },
+      {
+        id: ADMIN_CARD_ID,
+        committee_id: COMMITTEE_ID,
+        title: "Admin levy hardship matter",
+        description: "Admin-only seeded card that must not leak to ordinary members.",
+        type: "budget",
+        status: "confidential",
+        visibility: "admins",
+        creator_member_id: ADMIN_MEMBER_ID,
+      },
+      {
+        id: CUSTOM_CARD_ID,
+        committee_id: COMMITTEE_ID,
+        title: "Custom access legal review",
+        description: "Custom seeded card limited by card_access.",
+        type: "dispute",
+        status: "confidential",
+        visibility: "custom",
+        creator_member_id: ADMIN_MEMBER_ID,
+      },
+    ]),
+  );
+
+  await must(
+    "custom card access upsert",
+    admin.from("card_access").upsert({ card_id: CUSTOM_CARD_ID, member_id: ADMIN_MEMBER_ID }),
+  );
+
+  await must(
     "variation upsert",
     admin.from("variations").upsert({
       id: VARIATION_ID,
@@ -377,48 +419,6 @@ async function seed() {
       amount: 6200,
       spent_on: "2026-06-26",
     }),
-  );
-
-  await must(
-    "cards upsert",
-    admin.from("cards").upsert([
-      {
-        id: PUBLIC_CARD_ID,
-        committee_id: COMMITTEE_ID,
-        title: "Live fire door approval",
-        description: "Seeded visible card for live Supabase/RLS verification.",
-        type: "quote",
-        status: "pending_vote",
-        visibility: "all",
-        creator_member_id: ADMIN_MEMBER_ID,
-        linked_project_id: PROJECT_ID,
-      },
-      {
-        id: ADMIN_CARD_ID,
-        committee_id: COMMITTEE_ID,
-        title: "Admin levy hardship matter",
-        description: "Admin-only seeded card that must not leak to ordinary members.",
-        type: "budget",
-        status: "confidential",
-        visibility: "admins",
-        creator_member_id: ADMIN_MEMBER_ID,
-      },
-      {
-        id: CUSTOM_CARD_ID,
-        committee_id: COMMITTEE_ID,
-        title: "Custom access legal review",
-        description: "Custom seeded card limited by card_access.",
-        type: "dispute",
-        status: "confidential",
-        visibility: "custom",
-        creator_member_id: ADMIN_MEMBER_ID,
-      },
-    ]),
-  );
-
-  await must(
-    "custom card access upsert",
-    admin.from("card_access").upsert({ card_id: CUSTOM_CARD_ID, member_id: ADMIN_MEMBER_ID }),
   );
 
   await must(
