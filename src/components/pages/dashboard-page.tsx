@@ -211,7 +211,7 @@ export function DashboardPage() {
                 <p className="truncate font-mono text-[10px] text-muted-foreground">
                   Source card:{featuredVote.id}
                 </p>
-                <Progress value={participationPct(featuredVote)} />
+                <Progress value={participationPct(featuredVote)} aria-label="Vote participation" />
                 <Separator />
                 <VoteResults card={featuredVote} compact />
               </CardContent>

@@ -11,6 +11,9 @@
     "build:eve": "eve build",
     "start": "next start",
     "lint": "eslint",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p e2e/tsconfig.json",
+    "verify:e2e": "playwright test",
+    "verify:e2e:report": "playwright show-report",
     "verify:fallback-build": "node scripts/verify-fallback-build.mjs",
     "verify:fail-closed": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types scripts/verify-fail-closed.mjs && node --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --experimental-loader ./scripts/test-alias-loader.mjs scripts/verify-fail-closed-routes.mjs && STRATA_TEST_UPSTREAM_FAILURES=1 node --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --experimental-loader ./scripts/test-alias-loader.mjs scripts/verify-upstream-failures.mjs && node scripts/verify-mutation-targets.mjs",
     "verify:mutation-targets": "node scripts/verify-mutation-targets.mjs",
@@ -72,15 +75,16 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.13.0",
     "@playwright/test": "^1.61.1",
-    "@tailwindcss/postcss": "4.3.3",
+    "@tailwindcss/postcss": "^4.3.3",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.3.0",
     "supabase": "2.111.0",
-    "tailwindcss": "4.3.3",
+    "tailwindcss": "^4.3.3",
     "typescript": "^5"
   }
 }

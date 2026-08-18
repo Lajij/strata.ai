@@ -1,0 +1,138 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - "platform/**"
+
+# All jobs are intended to be required on pull requests. Source-inspection is
+# labelled as non-behavioural; the migration-replay, behavioural-rls, and
+# e2e-accessibility jobs are the behavioural production gates.
+jobs:
+  lint-typecheck-build:
+    name: Lint, typecheck, build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm run build
+
+  source-inspection:
+    name: Source inspection (not behavioural proof)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+      - run: npm ci
+      # Static source-inspection gates. These read source/ASTs and the
+      # capability matrix; they do not exercise a live browser or database.
+      - run: npm run verify:admin
+      - run: npm run verify:dashboard
+      - run: npm run verify:projects
+      - run: npm run verify:drilldown
+      - run: npm run verify:search
+      - run: npm run verify:workflow-ui
+      - run: npm run verify:documents-ui
+      - run: npm run verify:frontend-contract
+      - run: npm run verify:mutation-targets
+      - run: npm run verify:capabilities
+      - run: npm run verify:security
+      - run: npm run verify:fail-closed
+      - run: npm run verify:eve-tools
+      - run: npm run verify:eve-evals
+      - run: npm run verify:fallback-build
+
+  migration-replay:
+    name: Migration replay
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+      - run: npm ci
+      # verify-migration-reconciliation.mjs drives an ephemeral Postgres via
+      # initdb/pg_ctl/psql, so the server binaries must be on PATH.
+      - name: Install PostgreSQL binaries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql postgresql-client
+          echo "$(ls -d /usr/lib/postgresql/*/bin | head -n1)" >> "$GITHUB_PATH"
+      - name: Start local Supabase
+        run: npx supabase start
+      - run: npm run verify:migrations
+      - run: npm run verify:migrations:reconciliation
+        env:
+          STRATA_ALLOW_LOCAL_DB_RESET: "1"
+      - run: npm run verify:migrations:replay
+        env:
+          STRATA_ALLOW_LOCAL_DB_RESET: "1"
+
+  behavioural-rls:
+    name: Behavioural RLS
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+      - run: npm ci
+      # verify-capability-rls.mjs drives an ephemeral Postgres via
+      # initdb/pg_ctl/psql; the server binaries must be on PATH.
+      - name: Install PostgreSQL binaries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql postgresql-client
+          echo "$(ls -d /usr/lib/postgresql/*/bin | head -n1)" >> "$GITHUB_PATH"
+      - run: npm run verify:capabilities:rls
+
+  e2e-accessibility:
+    name: E2E + accessibility (Playwright/axe)
+    runs-on: ubuntu-latest
+    env:
+      STRATA_ENVIRONMENT: local
+      STRATA_DATA_MODE: live
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+      - run: npm ci
+      - name: Start local Supabase
+        run: npx supabase start
+      - name: Reset local database (migrations + seed.sql)
+        run: npx supabase db reset
+      - name: Capture local Supabase keys
+        run: |
+          set -euo pipefail
+          eval "$(npx supabase status -o env)"
+          echo "NEXT_PUBLIC_SUPABASE_URL=$API_URL" >> "$GITHUB_ENV"
+          echo "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=$ANON_KEY" >> "$GITHUB_ENV"
+          echo "SUPABASE_SECRET_KEY=$SERVICE_ROLE_KEY" >> "$GITHUB_ENV"
+      - name: Seed live workspace
+        run: npm run supabase:seed-live
+      - name: Install Playwright browser
+        run: npx playwright install --with-deps chromium
+      - name: Run behavioural e2e + accessibility
+        run: npm run verify:e2e
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 7

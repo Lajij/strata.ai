@@ -39,9 +39,12 @@ export function SettingsPage() {
                 <dt className="text-xs text-muted-foreground">Email</dt>
                 <dd className="mt-1 break-all font-medium">{currentMember.email}</dd>
               </div>
-              <div className="flex flex-wrap gap-2">
-                <Badge variant="secondary">{currentMember.role}</Badge>
-                <Badge variant="outline">{currentMember.access_level}</Badge>
+              <div>
+                <dt className="text-xs text-muted-foreground">Role and access</dt>
+                <dd className="mt-1 flex flex-wrap gap-2">
+                  <Badge variant="secondary">{currentMember.role}</Badge>
+                  <Badge variant="outline">{currentMember.access_level}</Badge>
+                </dd>
               </div>
               <div>
                 <dt className="text-xs text-muted-foreground">Member record</dt>
