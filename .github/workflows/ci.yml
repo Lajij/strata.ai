@@ -135,7 +135,10 @@ jobs:
               if (!trimmed || !trimmed.includes("=")) continue;
               const eqIdx = trimmed.indexOf("=");
               const key = trimmed.slice(0, eqIdx);
-              const value = trimmed.slice(eqIdx + 1);
+              let value = trimmed.slice(eqIdx + 1);
+              if ((value.startsWith("\"") && value.endsWith("\"")) || (value.startsWith("'"'"'") && value.endsWith("'"'"'"))) {
+                value = value.slice(1, -1);
+              }
               if (mapping[key]) {
                 result.push(mapping[key] + "=" + value);
               }
