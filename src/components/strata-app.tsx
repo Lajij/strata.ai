@@ -28,6 +28,15 @@ import {
   Sparkles,
   Upload,
   Vote,
+  Archive,
+  CircleDollarSign,
+  Clock3,
+  FolderKanban,
+  HardHat,
+  Home,
+  ShieldAlert,
+  Users,
+  type LucideIcon,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
@@ -39,7 +48,6 @@ import {
   formatCurrency,
   incidents,
   kpis,
-  navItems,
   NavKey,
   type AuditEvent,
   type BudgetLine,
@@ -55,6 +63,19 @@ import {
 } from "@/lib/strata-data";
 import type { StrataAppData } from "@/lib/strata-app-data";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
+
+// Bridge (#20): RC's @/lib/strata-data no longer exports navItems (it was removed when the
+// shell was split). Defined locally here until the monolith is replaced by the app shell (#19).
+const navItems: { key: NavKey; label: string; icon: LucideIcon }[] = [
+  { key: "dashboard", label: "Dashboard", icon: Home },
+  { key: "cards", label: "Cards", icon: FolderKanban },
+  { key: "documents", label: "Documents", icon: Archive },
+  { key: "projects", label: "Projects", icon: HardHat },
+  { key: "budget", label: "Budget", icon: CircleDollarSign },
+  { key: "incidents", label: "Incidents", icon: ShieldAlert },
+  { key: "members", label: "Members", icon: Users },
+  { key: "activity", label: "Activity", icon: Clock3 },
+];
 
 type AiTask =
   | "card-brief"
