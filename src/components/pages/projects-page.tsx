@@ -63,7 +63,7 @@ export function ProjectsPage() {
                   {project.progress}% complete
                 </span>
               </div>
-              <Progress value={project.progress} />
+              <Progress value={project.progress} aria-labelledby={`progress-${project.id}`} />
             </section>
 
             <section aria-labelledby={`financials-${project.id}`}>
