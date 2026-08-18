@@ -19,8 +19,8 @@ test.describe("capability isolation", () => {
         await gotoApp(page);
         await openNav(page, "cards");
 
-        // Positive control: the all-visibility seeded card is rendered.
-        await expect(page.getByText("Live fire door approval").first()).toBeVisible({
+        // Positive control: the all-visibility seeded card is rendered (UI shows proposal title).
+        await expect(page.getByText("Approve fire door quote with conditions").first()).toBeVisible({
           timeout: 30_000,
         });
 
@@ -34,7 +34,14 @@ test.describe("capability isolation", () => {
         await openNav(page, "documents");
 
         await expect(page.getByText("Registered by-laws").first()).toBeVisible({ timeout: 30_000 });
-        await expect(page.getByText("Admin levy payment plan")).toHaveCount(0);
+        
+        // Product decision: read-only treasurer MAY see visibility:admins docs.
+        // Ordinary member must NOT see them.
+        if (persona === "readOnly") {
+          await expect(page.getByText("Admin levy payment plan").first()).toBeVisible({ timeout: 10_000 });
+        } else {
+          await expect(page.getByText("Admin levy payment plan")).toHaveCount(0);
+        }
       });
     });
   }

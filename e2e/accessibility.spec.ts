@@ -57,7 +57,7 @@ for (const persona of ["admin", "member"] as const) {
       }) => {
         await gotoApp(page);
         await openNav(page, key);
-        await expect(page.getByRole("heading", { name: title })).toBeVisible({ timeout: 30_000 });
+        await expect(page.getByRole("heading", { name: title, exact: true })).toBeVisible({ timeout: 30_000 });
         await expectNoAxeViolations(page);
       });
     }
