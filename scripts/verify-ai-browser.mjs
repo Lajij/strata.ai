@@ -5,6 +5,10 @@ import { createServer } from "node:net";
 import { resolve } from "node:path";
 import { chromium } from "@playwright/test";
 import { createClient } from "@supabase/supabase-js";
+import {
+  assertBrowserMutationTargetAttestation,
+  assertSafeBrowserMutationTarget,
+} from "./target-environment-guard.mjs";
 
 loadEnv(".env.local");
 loadEnv(".env");
@@ -14,16 +18,18 @@ const url = process.env.STRATA_BROWSER_URL ?? `http://127.0.0.1:${await getFreeP
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const serviceKey =
   resolveServiceKey();
-const memberEmail = process.env.STRATA_MEMBER_EMAIL ?? "strata.member@example.com";
-const memberPassword = process.env.STRATA_MEMBER_PASSWORD ?? "StrataMember123!";
+const memberEmail = process.env.STRATA_MEMBER_EMAIL ?? "strata.fixture.member@example.invalid";
+const memberPassword = process.env.STRATA_MEMBER_PASSWORD ?? "LocalFixtureMember123!";
 const marker = `verify-ai-browser-${new Date().toISOString()}`;
 
 if (!supabaseUrl || !serviceKey) {
   throw new Error("Set NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SECRET_KEY for AI browser verification cleanup.");
 }
 
-const service = createClient(supabaseUrl, serviceKey, {
-  auth: { autoRefreshToken: false, persistSession: false },
+const mutationTarget = assertSafeBrowserMutationTarget({
+  appUrl: url,
+  supabaseUrl,
+  operation: "verify:ai-browser",
 });
 
 function loadEnv(file) {
@@ -211,6 +217,13 @@ async function runCardAction(page, label) {
 }
 
 const server = await ensureServer();
+await assertBrowserMutationTargetAttestation({
+  target: mutationTarget,
+  operation: "verify:ai-browser",
+});
+const service = createClient(supabaseUrl, serviceKey, {
+  auth: { autoRefreshToken: false, persistSession: false },
+});
 await cleanupAiOutputs();
 
 const browser = await chromium.launch({ headless: true });

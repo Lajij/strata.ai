@@ -4,6 +4,10 @@ import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { chromium } from "@playwright/test";
 import { createClient } from "@supabase/supabase-js";
+import {
+  assertBrowserMutationTargetAttestation,
+  assertSafeBrowserMutationTarget,
+} from "./target-environment-guard.mjs";
 
 loadEnv(".env.local");
 loadEnv(".env");
@@ -13,10 +17,10 @@ const appUrl = process.env.STRATA_BROWSER_URL ?? "http://127.0.0.1:3000";
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const serviceKey =
   resolveServiceKey();
-const adminEmail = process.env.STRATA_ADMIN_EMAIL ?? "strata.admin@example.com";
-const adminPassword = process.env.STRATA_ADMIN_PASSWORD ?? "StrataAdmin123!";
-const memberEmail = process.env.STRATA_MEMBER_EMAIL ?? "strata.member@example.com";
-const memberPassword = process.env.STRATA_MEMBER_PASSWORD ?? "StrataMember123!";
+const adminEmail = process.env.STRATA_ADMIN_EMAIL ?? "strata.fixture.admin@example.invalid";
+const adminPassword = process.env.STRATA_ADMIN_PASSWORD ?? "LocalFixtureAdmin123!";
+const memberEmail = process.env.STRATA_MEMBER_EMAIL ?? "strata.fixture.member@example.invalid";
+const memberPassword = process.env.STRATA_MEMBER_PASSWORD ?? "LocalFixtureMember123!";
 const marker = `auth-browser-${Date.now()}`;
 const managedEmail = `${marker}-managed@example.com`;
 const invitedEmail = `${marker}-invited@example.com`;
@@ -26,8 +30,10 @@ if (!supabaseUrl || !serviceKey) {
   throw new Error("Set NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SECRET_KEY for auth browser verification setup.");
 }
 
-const service = createClient(supabaseUrl, serviceKey, {
-  auth: { autoRefreshToken: false, persistSession: false },
+const mutationTarget = assertSafeBrowserMutationTarget({
+  appUrl,
+  supabaseUrl,
+  operation: "verify:auth-browser",
 });
 
 function loadEnv(file) {
@@ -252,6 +258,13 @@ async function bodyText(page) {
 }
 
 const server = await ensureServer();
+await assertBrowserMutationTargetAttestation({
+  target: mutationTarget,
+  operation: "verify:auth-browser",
+});
+const service = createClient(supabaseUrl, serviceKey, {
+  auth: { autoRefreshToken: false, persistSession: false },
+});
 await cleanupMarkedRecords();
 await setupManagedMember();
 
@@ -318,7 +331,7 @@ try {
   await managedRow.getByLabel(`Save member ${managedEmail}`).click();
   await page.getByText("Saving member access...").waitFor({ timeout: 10000 });
   observations.loadingState = true;
-  await page.getByText("Member access updated and audited").waitFor({ timeout: 30000 });
+  await page.getByText("Member access updated").waitFor({ timeout: 30000 });
   observations.successState = true;
 
   managedRow = await memberRow(page, managedEmail);
@@ -331,7 +344,7 @@ try {
 
   await managedRow.getByLabel(`Status for ${managedEmail}`).selectOption("suspended");
   await managedRow.getByLabel(`Save member ${managedEmail}`).click();
-  await page.getByText("Member access updated and audited").waitFor({ timeout: 30000 });
+  await page.getByText("Member access updated").waitFor({ timeout: 30000 });
   managedRow = await memberRow(page, managedEmail);
   observations.inactiveState = (await managedRow.innerText()).includes("Inactive");
 

@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
+import { PublicRequestError, fixtureWriteDisabledResponse, isMissingAuthSession, operationFailureResponse, runtimeFailureResponse, upstreamUnavailable } from "@/lib/runtime-configuration";
 import { getCurrentMember } from "@/lib/strata-app-data";
+import { canManageFinance } from "@/lib/member-authorization";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
 import type { Json } from "@/lib/supabase/types";
 
@@ -7,7 +9,7 @@ const financeActions = new Set(["create-vendor", "create-invoice", "create-quote
 
 function requiredText(value: unknown, label: string) {
   if (typeof value !== "string" || !value.trim()) {
-    throw new Error(`${label} is required`);
+    throw new PublicRequestError("REQUEST_FIELD_REQUIRED", `${label} is required`);
   }
 
   return value.trim();
@@ -21,7 +23,7 @@ function moneyValue(value: unknown, label: string) {
   const number = typeof value === "number" ? value : Number(value);
 
   if (!Number.isFinite(number) || number < 0) {
-    throw new Error(`${label} must be a positive number`);
+    throw new PublicRequestError("MONEY_VALUE_INVALID", `${label} must be a positive number`);
   }
 
   return number;
@@ -46,14 +48,6 @@ function listValue(value: unknown) {
     .filter(Boolean);
 }
 
-function fallbackResponse(action: string) {
-  return NextResponse.json({
-    mode: "fallback",
-    id: `mock-${action}-${Date.now()}`,
-    message: "Supabase env vars are not set, so the local fallback finance workflow returned a mock success",
-  });
-}
-
 export async function POST(request: NextRequest, context: { params: Promise<{ action: string }> }) {
   const { action } = await context.params;
 
@@ -62,20 +56,44 @@ export async function POST(request: NextRequest, context: { params: Promise<{ ac
   }
 
   const payload = (await request.json().catch(() => ({}))) as Record<string, unknown>;
-  const supabase = await getSupabaseServerClient();
+  let supabase;
+
+  try {
+    supabase = await getSupabaseServerClient();
+  } catch (error) {
+    return runtimeFailureResponse(error);
+  }
 
   if (!supabase) {
-    return fallbackResponse(action);
+    return fixtureWriteDisabledResponse();
   }
 
   const client = supabase;
-  const member = await getCurrentMember(client);
-  const {
-    data: { user },
-  } = await client.auth.getUser();
+  let member;
+  let user;
+
+  try {
+    member = await getCurrentMember(client);
+    const userResult = await client.auth.getUser();
+
+    if (userResult.error && !isMissingAuthSession(userResult.error)) {
+      throw upstreamUnavailable("SUPABASE_AUTH_UNAVAILABLE");
+    }
+
+    user = userResult.data.user;
+  } catch (error) {
+    return runtimeFailureResponse(error);
+  }
 
   if (!member || !user) {
     return NextResponse.json({ error: "Sign in as an active committee member to use finance workflows" }, { status: 401 });
+  }
+
+  if (!canManageFinance(member.role, member.access_level)) {
+    return NextResponse.json(
+      { error: "Financial workflow capability is required", code: "FINANCE_CAPABILITY_REQUIRED" },
+      { status: 403 },
+    );
   }
 
   const activeMember = member;
@@ -165,7 +183,9 @@ export async function POST(request: NextRequest, context: { params: Promise<{ ac
     await audit(cardId, "Created quote review", id, { workflow: action, quote_review_id: id });
     return NextResponse.json({ mode: "supabase", id, message: "Quote review created and audited" });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Finance workflow failed";
-    return NextResponse.json({ error: message }, { status: 400 });
+    return operationFailureResponse(error, {
+      code: "FINANCE_OPERATION_FAILED",
+      message: "The finance operation could not be completed.",
+    });
   }
 }

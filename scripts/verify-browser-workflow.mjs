@@ -3,6 +3,10 @@ import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { chromium } from "@playwright/test";
 import { createClient } from "@supabase/supabase-js";
+import {
+  assertBrowserMutationTargetAttestation,
+  assertSafeBrowserMutationTarget,
+} from "./target-environment-guard.mjs";
 
 loadEnv(".env.local");
 loadEnv(".env");
@@ -11,12 +15,18 @@ const url = process.env.STRATA_BROWSER_URL ?? "http://localhost:3000";
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const serviceKey =
   resolveServiceKey();
-const memberEmail = process.env.STRATA_MEMBER_EMAIL ?? "strata.member@example.com";
-const memberPassword = process.env.STRATA_MEMBER_PASSWORD ?? "StrataMember123!";
+const memberEmail = process.env.STRATA_MEMBER_EMAIL ?? "strata.fixture.member@example.invalid";
+const memberPassword = process.env.STRATA_MEMBER_PASSWORD ?? "LocalFixtureMember123!";
 
 if (!supabaseUrl || !serviceKey) {
   throw new Error("Set NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SECRET_KEY for browser workflow cleanup.");
 }
+
+const mutationTarget = assertSafeBrowserMutationTarget({
+  appUrl: url,
+  supabaseUrl,
+  operation: "verify:browser-workflow",
+});
 
 function loadEnv(file) {
   const path = resolve(process.cwd(), file);
@@ -76,6 +86,10 @@ const message = `Browser verification message ${unique}`;
 const proposal = `Approve browser verification ${unique}`;
 const condition = `Browser verification condition ${unique}`;
 
+await assertBrowserMutationTargetAttestation({
+  target: mutationTarget,
+  operation: "verify:browser-workflow",
+});
 await cleanupCard(title, description);
 
 const browser = await chromium.launch({ headless: true });

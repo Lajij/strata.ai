@@ -1,4 +1,6 @@
 import { resolveServiceKey } from "./service-key.mjs";
+import { FIXTURE_IDS } from "./fixture-identifiers.mjs";
+import { assertSafeMutationTarget } from "./target-environment-guard.mjs";
 import { existsSync, readFileSync, unlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -13,7 +15,7 @@ const migrationSource = readFileSync(join(root, "supabase/migrations/20260626000
 const packageJson = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
 
 const TEST_OUTPUT_ID = "eeeeeeee-eeee-eeee-eeee-eeeeeeee9901";
-const PUBLIC_CARD_ID = "44444444-4444-4444-4444-444444444441";
+const PUBLIC_CARD_ID = FIXTURE_IDS.publicCard;
 
 function assert(condition, message) {
   if (!condition) {
@@ -113,11 +115,16 @@ const serviceKey =
   resolveServiceKey();
 
 if (url && anonKey && serviceKey) {
+  assertSafeMutationTarget({
+    url,
+    operation: "verify:ai-observability live checks",
+  });
+
   const service = createClient(url, serviceKey, {
     auth: { autoRefreshToken: false, persistSession: false },
   });
-  const email = process.env.STRATA_MEMBER_EMAIL ?? "strata.member@example.com";
-  const password = process.env.STRATA_MEMBER_PASSWORD ?? "StrataMember123!";
+  const email = process.env.STRATA_MEMBER_EMAIL ?? "strata.fixture.member@example.invalid";
+  const password = process.env.STRATA_MEMBER_PASSWORD ?? "LocalFixtureMember123!";
   const { userId, client: memberClient } = await signInClient(url, anonKey, email, password);
   const member = await must(
     "read current member",

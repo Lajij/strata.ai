@@ -1,11 +1,13 @@
 import { resolveServiceKey } from "./service-key.mjs";
+import { FIXTURE_IDS } from "./fixture-identifiers.mjs";
+import { assertSafeMutationTarget } from "./target-environment-guard.mjs";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { createClient } from "@supabase/supabase-js";
 
-const COMMITTEE_ID = "11111111-1111-1111-1111-111111111111";
-const PROJECT_ID = "55555555-5555-5555-5555-555555555551";
-const PUBLIC_CARD_ID = "44444444-4444-4444-4444-444444444441";
+const COMMITTEE_ID = FIXTURE_IDS.committee;
+const PROJECT_ID = FIXTURE_IDS.project;
+const PUBLIC_CARD_ID = FIXTURE_IDS.publicCard;
 const ADMIN_INVOICE_ID = "78787878-7878-7878-7878-787878787991";
 const MEMBER_BLOCKED_INVOICE_ID = "78787878-7878-7878-7878-787878787992";
 
@@ -18,14 +20,19 @@ const anonKey =
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 const serviceKey =
   resolveServiceKey();
-const adminEmail = process.env.STRATA_ADMIN_EMAIL ?? "strata.admin@example.com";
-const adminPassword = process.env.STRATA_ADMIN_PASSWORD ?? "StrataAdmin123!";
-const memberEmail = process.env.STRATA_MEMBER_EMAIL ?? "strata.member@example.com";
-const memberPassword = process.env.STRATA_MEMBER_PASSWORD ?? "StrataMember123!";
+const adminEmail = process.env.STRATA_ADMIN_EMAIL ?? "strata.fixture.admin@example.invalid";
+const adminPassword = process.env.STRATA_ADMIN_PASSWORD ?? "LocalFixtureAdmin123!";
+const memberEmail = process.env.STRATA_MEMBER_EMAIL ?? "strata.fixture.member@example.invalid";
+const memberPassword = process.env.STRATA_MEMBER_PASSWORD ?? "LocalFixtureMember123!";
 
 if (!url || !anonKey || !serviceKey) {
   throw new Error("Set NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY, and SUPABASE_SECRET_KEY.");
 }
+
+assertSafeMutationTarget({
+  url,
+  operation: "verify:budget-workflow",
+});
 
 const service = createClient(url, serviceKey, {
   auth: { autoRefreshToken: false, persistSession: false },

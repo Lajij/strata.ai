@@ -1,20 +1,19 @@
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
+import { resolveRuntimeConfiguration } from "@/lib/runtime-configuration";
 import type { Database } from "./types";
 
 export async function getSupabaseServerClient(accessToken?: string) {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key =
-    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ??
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  const configuration = resolveRuntimeConfiguration();
 
-  if (!url || !key) {
+  if (!configuration.supabase) {
     return null;
   }
 
+  const { url, publishableKey } = configuration.supabase;
   const cookieStore = await cookies();
 
-  return createServerClient<Database>(url, key, {
+  return createServerClient<Database>(url, publishableKey, {
     global: accessToken
       ? {
           headers: {

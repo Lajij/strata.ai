@@ -40,5 +40,5 @@ export function resolveServiceKey(env = process.env) {
     return legacy;
   }
 
-  return secret || legacy || undefined;
+  return undefined;
 }

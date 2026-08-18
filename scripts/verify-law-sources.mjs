@@ -1,4 +1,5 @@
 import { resolveServiceKey } from "./service-key.mjs";
+import { assertSafeMutationTarget } from "./target-environment-guard.mjs";
 import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { createClient } from "@supabase/supabase-js";
@@ -49,8 +50,8 @@ async function must(label, promise) {
 }
 
 async function signInClient(url, anonKey) {
-  const email = process.env.STRATA_MEMBER_EMAIL ?? "strata.member@example.com";
-  const password = process.env.STRATA_MEMBER_PASSWORD ?? "StrataMember123!";
+  const email = process.env.STRATA_MEMBER_EMAIL ?? "strata.fixture.member@example.invalid";
+  const password = process.env.STRATA_MEMBER_PASSWORD ?? "LocalFixtureMember123!";
   const client = createClient(url, anonKey, {
     auth: { autoRefreshToken: false, persistSession: false },
   });
@@ -91,6 +92,11 @@ const serviceKey =
   resolveServiceKey();
 
 if (url && anonKey && serviceKey) {
+  assertSafeMutationTarget({
+    url,
+    operation: "verify:law authenticated reads",
+  });
+
   const service = createClient(url, serviceKey, {
     auth: { autoRefreshToken: false, persistSession: false },
   });

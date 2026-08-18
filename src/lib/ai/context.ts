@@ -7,6 +7,7 @@ import {
   type Project,
   type Visibility,
 } from "@/lib/strata-data";
+import { activeMemberRequired, upstreamUnavailable } from "@/lib/runtime-configuration";
 import { getCurrentMember } from "@/lib/strata-app-data";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
 
@@ -203,7 +204,7 @@ export async function buildVisibleAiContext(request: AiContextRequest = {}, acce
   const member = await getCurrentMember(supabase);
 
   if (!member) {
-    return buildFallbackAiContext(request);
+    throw activeMemberRequired();
   }
 
   const scopedCard = request.cardId ? { card_id: request.cardId } : {};
@@ -330,7 +331,7 @@ export async function buildVisibleAiContext(request: AiContextRequest = {}, acce
   ];
 
   if (results.some((result) => result.error)) {
-    return buildFallbackAiContext(request, member.role);
+    throw upstreamUnavailable("SUPABASE_AI_CONTEXT_QUERY_FAILED");
   }
 
   for (const card of cardsResult.data ?? []) {

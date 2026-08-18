@@ -52,7 +52,7 @@ function resolveServiceKey() {
     return legacy;
   }
 
-  return secret || legacy || undefined;
+  return undefined;
 }
 
 export function getSupabaseAdminClient() {

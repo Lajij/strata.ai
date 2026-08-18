@@ -1,4 +1,6 @@
 import { resolveServiceKey } from "./service-key.mjs";
+import { FIXTURE_IDS } from "./fixture-identifiers.mjs";
+import { assertSafeMutationTarget } from "./target-environment-guard.mjs";
 import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { createClient } from "@supabase/supabase-js";
@@ -6,6 +8,7 @@ import { createClient } from "@supabase/supabase-js";
 const root = process.cwd();
 const routeSource = readFileSync(join(root, "src/app/api/ai/[task]/route.ts"), "utf8");
 const contextSource = readFileSync(join(root, "src/lib/ai/context.ts"), "utf8");
+const runtimeSource = readFileSync(join(root, "src/lib/runtime-configuration.ts"), "utf8");
 const envExampleSource = readFileSync(join(root, ".env.example"), "utf8");
 // The AI UI contract lives on the composed client surface, not one monolith:
 // the shell mounts the assistant, pages mount the document/project/budget tools.
@@ -22,10 +25,10 @@ const componentSource = [
   .join("\n");
 const packageJson = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
 
-const COMMITTEE_ID = "11111111-1111-1111-1111-111111111111";
-const MEMBER_ID = "33333333-3333-3333-3333-333333333332";
-const PUBLIC_CARD_ID = "44444444-4444-4444-4444-444444444441";
-const ADMIN_CARD_ID = "44444444-4444-4444-4444-444444444442";
+const COMMITTEE_ID = FIXTURE_IDS.committee;
+const MEMBER_ID = FIXTURE_IDS.member;
+const PUBLIC_CARD_ID = FIXTURE_IDS.publicCard;
+const ADMIN_CARD_ID = FIXTURE_IDS.adminCard;
 const VISIBLE_AI_OUTPUT_ID = "dddddddd-dddd-dddd-dddd-dddddddd9911";
 const HIDDEN_AI_OUTPUT_ID = "dddddddd-dddd-dddd-dddd-dddddddd9912";
 
@@ -76,8 +79,8 @@ async function must(label, promise) {
 }
 
 async function signInClient(url, anonKey) {
-  const email = process.env.STRATA_MEMBER_EMAIL ?? "strata.member@example.com";
-  const password = process.env.STRATA_MEMBER_PASSWORD ?? "StrataMember123!";
+  const email = process.env.STRATA_MEMBER_EMAIL ?? "strata.fixture.member@example.invalid";
+  const password = process.env.STRATA_MEMBER_PASSWORD ?? "LocalFixtureMember123!";
   const client = createClient(url, anonKey, {
     auth: { autoRefreshToken: false, persistSession: false },
   });
@@ -117,9 +120,9 @@ assertContains(routeSource, '.from("audit_log").insert', "AI audit logging");
 assertContains(routeSource, "requestedRecordIsVisible", "hidden requested record guard");
 assertContains(routeSource, "buildVisibleAiContext", "RLS context builder usage");
 assertContains(routeSource, "hasGatewayCredentials", "deterministic fallback guard");
-assertContains(routeSource, 'process.env.STRATA_AI_RELEASE_MODE === "live"', "explicit live-mode opt-in");
-assertContains(routeSource, 'releaseAiMode !== "live"', "fail-closed release fallback");
-assertContains(routeSource, "shouldUseFallback(body)", "release-mode fallback router");
+assertContains(runtimeSource, "AI_RELEASE_MODE_INVALID", "missing/invalid AI mode denial");
+assertContains(runtimeSource, "AI_FALLBACK_FORBIDDEN", "Production AI fallback denial");
+assertContains(routeSource, "shouldUseFallback(releaseAiMode)", "release-mode fallback router");
 assertContains(envExampleSource, "STRATA_AI_RELEASE_MODE=fallback", "documented fallback release mode");
 assertNotContains(routeSource, "SUPABASE_SERVICE_ROLE_KEY", "service-role usage in AI route");
 assertNotContains(contextSource, "SUPABASE_SERVICE_ROLE_KEY", "service-role usage in AI context");
@@ -172,6 +175,11 @@ const serviceKey =
   resolveServiceKey();
 
 if (url && anonKey && serviceKey) {
+  assertSafeMutationTarget({
+    url,
+    operation: "verify:ai-layer live checks",
+  });
+
   const service = createClient(url, serviceKey, {
     auth: { autoRefreshToken: false, persistSession: false },
   });

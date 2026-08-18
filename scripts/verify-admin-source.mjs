@@ -21,6 +21,7 @@ const settingsPage = read("src/components/pages/settings-page.tsx");
 const appShell = read("src/components/app-shell.tsx");
 const sidebar = read("src/components/sidebar-nav.tsx");
 const memberAuthorization = read("src/lib/member-authorization.ts");
+const memberCapabilities = read("src/lib/member-capabilities.ts");
 const inviteRoute = read("src/app/api/members/invite/route.ts");
 const updateRoute = read("src/app/api/members/update/route.ts");
 const authBrowser = read("scripts/verify-auth-browser.mjs");
@@ -56,19 +57,12 @@ for (const [needle, label] of [
   assertContains(peoplePage, needle, label);
 }
 
-for (const [needle, label] of [
-  ["admin: { manageMembers: true }", "admin capability"],
-  ["chair: { manageMembers: true }", "chair capability"],
-  ["secretary: { manageMembers: true }", "secretary capability"],
-  ["treasurer: { manageMembers: false }", "treasurer denial"],
-  ["member: { manageMembers: false }", "member denial"],
-  ["strata_manager: { manageMembers: false }", "strata manager denial"],
-]) {
-  assertContains(memberAuthorization, needle, label);
-}
+assertContains(memberCapabilities, 'new Set(["admin", "chair", "secretary"])', "member-management role capability");
+assertContains(memberCapabilities, 'principal.accessLevel === "read_only"', "read-only capability denial");
+assertContains(memberAuthorization, '"manage_members"', "member-management server capability binding");
 
-assertContains(inviteRoute, "if (!canManageMembers(member.role))", "server invite authorization");
-assertContains(updateRoute, "if (!canManageMembers(member.role))", "server update authorization");
+assertContains(inviteRoute, "if (!canManageMembers(member.role, member.access_level))", "server invite authorization");
+assertContains(updateRoute, "if (!canManageMembers(member.role, member.access_level))", "server update authorization");
 
 for (const [needle, label] of [
   ["Workspace source", "workspace provenance heading"],

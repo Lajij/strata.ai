@@ -2,6 +2,7 @@ import { resolveServiceKey } from "./service-key.mjs";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { createClient } from "@supabase/supabase-js";
+import { assertSafeMutationTarget } from "./target-environment-guard.mjs";
 
 loadEnv(".env.local");
 loadEnv(".env");
@@ -13,6 +14,11 @@ const serviceKey =
 if (!supabaseUrl || !serviceKey) {
   throw new Error("Set NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SECRET_KEY to seed NSW law sources.");
 }
+
+assertSafeMutationTarget({
+  url: supabaseUrl,
+  operation: "seed:law",
+});
 
 const supabase = createClient(supabaseUrl, serviceKey, {
   auth: { autoRefreshToken: false, persistSession: false },

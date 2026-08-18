@@ -84,9 +84,7 @@ export async function runAiTask(
     const response = await fetch(`/api/ai/${task}`, {
       method: "POST",
       headers,
-      body: JSON.stringify(
-        marker ? { ...payload, verificationMarker: marker, forceFallback: "true" } : payload,
-      ),
+      body: JSON.stringify(marker ? { ...payload, verificationMarker: marker } : payload),
     })
     const body = (await response.json()) as AiResponse
 

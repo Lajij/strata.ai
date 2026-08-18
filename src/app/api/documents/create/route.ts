@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
+import { PublicRequestError, fixtureWriteDisabledResponse, operationFailureResponse, runtimeFailureResponse } from "@/lib/runtime-configuration";
 import { getCurrentMember } from "@/lib/strata-app-data";
+import { canWriteRecords } from "@/lib/member-authorization";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
 import type { DocumentStatusDb, Json, VisibilityLevel } from "@/lib/supabase/types";
 
@@ -12,7 +14,7 @@ const DEFERRED_EXTRACTION_FILE_TYPES = new Set([
 
 function requiredText(value: unknown, label: string) {
   if (typeof value !== "string" || !value.trim()) {
-    throw new Error(`${label} is required`);
+    throw new PublicRequestError("REQUEST_FIELD_REQUIRED", `${label} is required`);
   }
 
   return value.trim();
@@ -82,20 +84,35 @@ function isDeferredExtractionFile(fileName: string, fileType: string) {
 
 export async function POST(request: NextRequest) {
   const payload = await parsePayload(request);
-  const supabase = await getSupabaseServerClient();
+  let supabase;
 
-  if (!supabase) {
-    return NextResponse.json({
-      mode: "fallback",
-      id: `mock-document-${Date.now()}`,
-      message: "Supabase env vars are not set, so the local fallback document workflow returned a mock success",
-    });
+  try {
+    supabase = await getSupabaseServerClient();
+  } catch (error) {
+    return runtimeFailureResponse(error);
   }
 
-  const member = await getCurrentMember(supabase);
+  if (!supabase) {
+    return fixtureWriteDisabledResponse();
+  }
+
+  let member;
+
+  try {
+    member = await getCurrentMember(supabase);
+  } catch (error) {
+    return runtimeFailureResponse(error);
+  }
 
   if (!member) {
     return NextResponse.json({ error: "Sign in as an active committee member to add documents" }, { status: 401 });
+  }
+
+  if (!canWriteRecords(member.role, member.access_level)) {
+    return NextResponse.json(
+      { error: "This committee membership is read-only", code: "WRITE_CAPABILITY_REQUIRED" },
+      { status: 403 },
+    );
   }
 
   try {
@@ -209,7 +226,9 @@ export async function POST(request: NextRequest) {
       message: extractedText ? "Document uploaded and Markdown created" : "Document uploaded; extraction pending with Markdown placeholder",
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Document workflow failed";
-    return NextResponse.json({ error: message }, { status: 400 });
+    return operationFailureResponse(error, {
+      code: "DOCUMENT_OPERATION_FAILED",
+      message: "The document operation could not be completed.",
+    });
   }
 }

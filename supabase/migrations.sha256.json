@@ -1,0 +1,10 @@
+{
+  "202606250001_initial_strata_governance.sql": "ae484431bc4d3c8db2233185fbcc50eb7390bceb1fad22333cccc58680403e80",
+  "202606260001_ai_output_observability.sql": "7cd52fd4a6c477f39dfc4beb113be5ec3c124c2ae7f88503e7e4ff607eb46d4e",
+  "202606260002_document_storage_bucket.sql": "b0ad07e8247d878dae705279fcef79083b6a87e1b723cd63a0aa80d2c20a5d8e",
+  "202606260003_legislation_chunk_metadata.sql": "9c8f4d8c9ee4ce744d0539568ce9f69b249c26d62722ff9cf6b97910942b3df1",
+  "202606270001_member_invites.sql": "6f173c792a8f9a2e8b25a674649516cdb6db7fc552a18485107c856d9bbc72ec",
+  "20260628145525_tighten_attachment_document_visibility.sql": "f489cdbac097082257c51269ef5b3532abb900fdd9fe8a25712a03e4eee0f5c7",
+  "20260801053901_harden_member_lifecycle_audit.sql": "d8c65704014dba37a969766d47af8f08496516c18219dcaa7757f044d856a87e",
+  "20260815220003_reconcile_legacy_embedded_fixtures.sql": "bb77ee8332b3b1e3a1e7d837d67d33b283fb9f88db727e24cf0172e219e9bf87"
+}

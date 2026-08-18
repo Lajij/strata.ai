@@ -6,7 +6,7 @@ let browserClient: ReturnType<typeof createBrowserClient<Database>> | null = nul
 let implicitRecoveryClient: ReturnType<typeof createClient<Database>> | null = null;
 
 function browserConfiguration() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const url = process.env.STRATA_BROWSER_BUILD_SUPABASE_URL;
   const key =
     process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ??
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;

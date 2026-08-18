@@ -1,4 +1,5 @@
 import { resolveServiceKey } from "./service-key.mjs";
+import { assertSafeMutationTarget } from "./target-environment-guard.mjs";
 import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { createClient } from "@supabase/supabase-js";
@@ -103,8 +104,8 @@ assert(inviteRoute.includes("accessLevel"), "Invite route must persist access le
 assert(inviteRoute.includes("assertInviteCanBePrepared"), "Invite route must not recycle active or suspended rows");
 assert(acceptRoute.includes("No pending committee invite matches"), "Accept route must reject uninvited users");
 assert(acceptRoute.includes('status: "active"'), "Accept route must activate matching invited members");
-assert(memberAuthorization.includes("memberCapabilities"), "Member authorization must define a server-side role matrix");
-assert(memberAuthorization.includes("manageMembers: false"), "Member authorization must include negative role capabilities");
+assert(memberAuthorization.includes("hasMemberCapability"), "Member authorization must use the shared server-side capability matrix");
+assert(memberAuthorization.includes("accessLevel"), "Member authorization must enforce access-level restrictions");
 assert(lifecycleMigration.includes("create trigger enforce_member_lifecycle"), "Member lifecycle must be enforced in Postgres");
 assert(lifecycleMigration.includes("create trigger audit_member_lifecycle"), "Member lifecycle changes must be audited in Postgres");
 assert(lifecycleMigration.includes("after insert or update of full_name, role, status, access_level"), "Member audit trigger must cover lifecycle and access changes");
@@ -132,12 +133,17 @@ const anonKey =
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 const serviceKey =
   resolveServiceKey();
-const adminEmail = process.env.STRATA_ADMIN_EMAIL ?? "strata.admin@example.com";
-const adminPassword = process.env.STRATA_ADMIN_PASSWORD ?? "StrataAdmin123!";
-const memberEmail = process.env.STRATA_MEMBER_EMAIL ?? "strata.member@example.com";
-const memberPassword = process.env.STRATA_MEMBER_PASSWORD ?? "StrataMember123!";
+const adminEmail = process.env.STRATA_ADMIN_EMAIL ?? "strata.fixture.admin@example.invalid";
+const adminPassword = process.env.STRATA_ADMIN_PASSWORD ?? "LocalFixtureAdmin123!";
+const memberEmail = process.env.STRATA_MEMBER_EMAIL ?? "strata.fixture.member@example.invalid";
+const memberPassword = process.env.STRATA_MEMBER_PASSWORD ?? "LocalFixtureMember123!";
 
 assert(url && anonKey && serviceKey, "Live auth verification needs Supabase URL, anon key, and local service key.");
+
+assertSafeMutationTarget({
+  url,
+  operation: "verify:auth-flow live checks",
+});
 
 const service = createClient(url, serviceKey, {
   auth: { autoRefreshToken: false, persistSession: false },
