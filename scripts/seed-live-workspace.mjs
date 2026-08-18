@@ -40,6 +40,30 @@ const {
 } = FIXTURE_IDS;
 const WORKFLOW_MARKER = "seed-live-workspace-verification";
 
+function loadEnv(file) {
+  const path = resolve(process.cwd(), file);
+
+  if (!existsSync(path)) {
+    return;
+  }
+
+  for (const line of readFileSync(path, "utf8").split(/\r?\n/)) {
+    const trimmed = line.trim();
+
+    if (!trimmed || trimmed.startsWith("#") || !trimmed.includes("=")) {
+      continue;
+    }
+
+    const index = trimmed.indexOf("=");
+    const key = trimmed.slice(0, index).trim();
+    const value = trimmed.slice(index + 1).trim().replace(/^['"]|['"]$/g, "");
+
+    if (!process.env[key]) {
+      process.env[key] = value;
+    }
+  }
+}
+
 loadEnv(".env.local");
 loadEnv(".env");
 
@@ -90,30 +114,6 @@ const anon = (email, password) =>
     auth: { autoRefreshToken: false, persistSession: false },
     global: { headers: { "x-strata-smoke-user": email } },
   }).auth.signInWithPassword({ email, password });
-
-function loadEnv(file) {
-  const path = resolve(process.cwd(), file);
-
-  if (!existsSync(path)) {
-    return;
-  }
-
-  for (const line of readFileSync(path, "utf8").split(/\r?\n/)) {
-    const trimmed = line.trim();
-
-    if (!trimmed || trimmed.startsWith("#") || !trimmed.includes("=")) {
-      continue;
-    }
-
-    const index = trimmed.indexOf("=");
-    const key = trimmed.slice(0, index).trim();
-    const value = trimmed.slice(index + 1).trim().replace(/^['"]|['"]$/g, "");
-
-    if (!process.env[key]) {
-      process.env[key] = value;
-    }
-  }
-}
 
 async function findUserByEmail(email) {
   for (let page = 1; page <= 20; page += 1) {
