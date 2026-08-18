@@ -9,6 +9,8 @@ const nextConfig: NextConfig = {
     STRATA_BROWSER_BUILD_SUPABASE_URL:
       process.env.NEXT_PUBLIC_SUPABASE_URL ?? "",
   },
+  // Allow Playwright/e2e to connect from 127.0.0.1 in dev mode
+  allowedDevOrigins: ["127.0.0.1"],
 };
 
 export default withEve(nextConfig);
