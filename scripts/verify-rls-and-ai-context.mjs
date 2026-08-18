@@ -10,6 +10,10 @@ const storageMigration = readFileSync(
   join(root, "supabase/migrations/202606260002_document_storage_bucket.sql"),
   "utf8",
 );
+const memberLifecycleMigration = readFileSync(
+  join(root, "supabase/migrations/20260801053901_harden_member_lifecycle_audit.sql"),
+  "utf8",
+);
 const contextSource = readFileSync(join(root, "src/lib/ai/context.ts"), "utf8");
 const aiRouteSource = readFileSync(join(root, "src/app/api/ai/[task]/route.ts"), "utf8");
 const workflowSource = readFileSync(join(root, "src/app/api/workflow/[action]/route.ts"), "utf8");
@@ -60,6 +64,12 @@ assertContains(
   "app_private.member_role(d.committee_id) in ('admin', 'chair', 'secretary', 'treasurer')",
   "storage admin/custom visibility guard",
 );
+assertContains(memberLifecycleMigration, "security invoker", "member trigger invoker security");
+assertContains(memberLifecycleMigration, "create trigger enforce_member_lifecycle", "member lifecycle trigger");
+assertContains(memberLifecycleMigration, "old.user_id = request_user_id", "member self-lockout database guard");
+assertContains(memberLifecycleMigration, "create trigger audit_member_lifecycle", "transactional member audit trigger");
+assertContains(memberLifecycleMigration, "insert into public.audit_log", "server-derived member audit event");
+assertNotContains(memberLifecycleMigration, "security definer", "member trigger RLS bypass");
 
 assertContains(contextSource, "getCurrentMember(supabase)", "AI context current-member lookup");
 assertContains(contextSource, '.from("cards")', "AI context card query");
@@ -73,6 +83,8 @@ assertContains(aiRouteSource, "requestedRecordIsVisible", "AI hidden source guar
 assertContains(aiRouteSource, '.from("ai_outputs")', "AI output persistence");
 assertNotContains(aiRouteSource, "SUPABASE_SERVICE_ROLE_KEY", "service-role usage in AI route");
 assertNotContains(contextSource, "SUPABASE_SERVICE_ROLE_KEY", "service-role usage in AI context");
+assertNotContains(aiRouteSource, "SUPABASE_SECRET_KEY", "secret-key usage in AI route");
+assertNotContains(contextSource, "SUPABASE_SECRET_KEY", "secret-key usage in AI context");
 
 for (const action of ["create-card", "add-message", "create-proposal", "cast-vote", "add-approval-condition"]) {
   assertContains(workflowSource, action, `${action} workflow route`);

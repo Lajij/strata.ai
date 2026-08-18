@@ -1,9 +1,10 @@
 import type { Metadata } from "next";
+import { Toaster } from "@/components/ui/sonner";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Strata Governance Command",
-  description: "A production-minded NSW strata committee governance workspace.",
+  title: "Strata Building Management",
+  description: "Manage strata updates, resident votes and building records.",
 };
 
 export default function RootLayout({
@@ -12,8 +13,11 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className="h-full antialiased">
-      <body className="min-h-full flex flex-col">{children}</body>
+    <html lang="en" className="h-full bg-background antialiased">
+      <body className="min-h-full">
+        {children}
+        <Toaster position="top-center" />
+      </body>
     </html>
   );
 }

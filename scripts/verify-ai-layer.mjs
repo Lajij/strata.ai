@@ -1,3 +1,4 @@
+import { resolveServiceKey } from "./service-key.mjs";
 import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { createClient } from "@supabase/supabase-js";
@@ -5,7 +6,20 @@ import { createClient } from "@supabase/supabase-js";
 const root = process.cwd();
 const routeSource = readFileSync(join(root, "src/app/api/ai/[task]/route.ts"), "utf8");
 const contextSource = readFileSync(join(root, "src/lib/ai/context.ts"), "utf8");
-const componentSource = readFileSync(join(root, "src/components/strata-app.tsx"), "utf8");
+const envExampleSource = readFileSync(join(root, ".env.example"), "utf8");
+// The AI UI contract lives on the composed client surface, not one monolith:
+// the shell mounts the assistant, pages mount the document/project/budget tools.
+const componentSource = [
+  "src/components/strata-app.tsx",
+  "src/components/app-shell.tsx",
+  "src/components/assistant/building-assistant.tsx",
+  "src/components/assistant/ai-tools.tsx",
+  "src/components/ai-elements/message.tsx",
+  "src/components/pages/documents-page.tsx",
+  "src/components/pages/dashboard-page.tsx",
+]
+  .map((path) => readFileSync(join(root, path), "utf8"))
+  .join("\n");
 const packageJson = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
 
 const COMMITTEE_ID = "11111111-1111-1111-1111-111111111111";
@@ -103,8 +117,14 @@ assertContains(routeSource, '.from("audit_log").insert', "AI audit logging");
 assertContains(routeSource, "requestedRecordIsVisible", "hidden requested record guard");
 assertContains(routeSource, "buildVisibleAiContext", "RLS context builder usage");
 assertContains(routeSource, "hasGatewayCredentials", "deterministic fallback guard");
+assertContains(routeSource, 'process.env.STRATA_AI_RELEASE_MODE === "live"', "explicit live-mode opt-in");
+assertContains(routeSource, 'releaseAiMode !== "live"', "fail-closed release fallback");
+assertContains(routeSource, "shouldUseFallback(body)", "release-mode fallback router");
+assertContains(envExampleSource, "STRATA_AI_RELEASE_MODE=fallback", "documented fallback release mode");
 assertNotContains(routeSource, "SUPABASE_SERVICE_ROLE_KEY", "service-role usage in AI route");
 assertNotContains(contextSource, "SUPABASE_SERVICE_ROLE_KEY", "service-role usage in AI context");
+assertNotContains(routeSource, "SUPABASE_SECRET_KEY", "secret-key usage in AI route");
+assertNotContains(contextSource, "SUPABASE_SECRET_KEY", "secret-key usage in AI context");
 
 for (const table of [
   "cards",
@@ -133,13 +153,23 @@ assertContains(componentSource, "DocumentAiTool", "document Q&A UI");
 assertContains(componentSource, "ProjectAiTool", "project AI UI");
 assertContains(componentSource, "budget-insights", "budget AI UI");
 assertContains(componentSource, "citations", "citation chip rendering");
+assertContains(componentSource, "Saved to ai_outputs", "persisted AI output status");
+assertContains(componentSource, "Not saved to ai_outputs", "non-persisted AI output status");
+
+if (process.env.STRATA_VERIFY_STATIC_ONLY === "1") {
+  console.log("AI layer static verification passed.");
+  process.exit(0);
+}
 
 loadEnv(".env.local");
 loadEnv(".env");
 
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const anonKey =
+  process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ??
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+const serviceKey =
+  resolveServiceKey();
 
 if (url && anonKey && serviceKey) {
   const service = createClient(url, serviceKey, {
@@ -149,6 +179,7 @@ if (url && anonKey && serviceKey) {
 
   await must("AI output cleanup", service.from("ai_outputs").delete().in("id", [VISIBLE_AI_OUTPUT_ID, HIDDEN_AI_OUTPUT_ID]));
 
+  try {
   await must(
     "member create visible AI output",
     memberClient.from("ai_outputs").insert({
@@ -199,8 +230,9 @@ if (url && anonKey && serviceKey) {
   if (!chunks.length) {
     throw new Error("No indexed NSW legislation chunks are visible for law lookup");
   }
-
-  await must("AI output cleanup", service.from("ai_outputs").delete().in("id", [VISIBLE_AI_OUTPUT_ID, HIDDEN_AI_OUTPUT_ID]));
+  } finally {
+    await must("AI output cleanup", service.from("ai_outputs").delete().in("id", [VISIBLE_AI_OUTPUT_ID, HIDDEN_AI_OUTPUT_ID]));
+  }
 }
 
 console.log("AI layer verification passed.");

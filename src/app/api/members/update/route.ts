@@ -1,12 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentMember } from "@/lib/strata-app-data";
+import {
+  assertMemberLifecycleTransition,
+  canManageMembers,
+  memberAccessLevels,
+  memberRoles,
+  memberStatuses,
+  type MemberAccessLevel,
+} from "@/lib/member-authorization";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
 import type { MemberRole, MemberStatus } from "@/lib/supabase/types";
-
-const adminRoles = new Set(["admin", "chair", "secretary"]);
-const memberRoles = new Set(["admin", "chair", "secretary", "treasurer", "member", "strata_manager"]);
-const memberStatuses = new Set(["active", "invited", "suspended"]);
-const accessLevels = new Set(["admin", "member", "limited_admin", "read_only"]);
 
 function stringValue(value: unknown, label: string) {
   if (typeof value !== "string" || !value.trim()) {
@@ -43,7 +46,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Sign in as an active admin member to manage committee users" }, { status: 401 });
   }
 
-  if (!adminRoles.has(member.role)) {
+  if (!canManageMembers(member.role)) {
     return NextResponse.json({ error: "Only admin, chair, or secretary members can manage users" }, { status: 403 });
   }
 
@@ -53,7 +56,7 @@ export async function POST(request: NextRequest) {
     const fullName = stringValue(payload.fullName, "Name");
     const role = enumValue(payload.role, memberRoles, "Role") as MemberRole;
     const status = enumValue(payload.status, memberStatuses, "Status") as MemberStatus;
-    const accessLevel = enumValue(payload.accessLevel, accessLevels, "Access level");
+    const accessLevel = enumValue(payload.accessLevel, memberAccessLevels, "Access level") as MemberAccessLevel;
 
     const { data: target, error: targetError } = await supabase
       .from("members")
@@ -70,9 +73,7 @@ export async function POST(request: NextRequest) {
       throw new Error("You cannot change your own role, access level, or active status");
     }
 
-    if (status === "active" && !target.user_id) {
-      throw new Error("Invited members must sign in before they can be marked active");
-    }
+    assertMemberLifecycleTransition(target.status, status, Boolean(target.user_id));
 
     const { data: updated, error: updateError } = await supabase
       .from("members")
@@ -90,29 +91,6 @@ export async function POST(request: NextRequest) {
     if (updateError) {
       throw updateError;
     }
-
-    await supabase.from("audit_log").insert({
-      committee_id: member.committee_id,
-      user_id: user.id,
-      action: "Updated member access",
-      target: target.email,
-      metadata: {
-        workflow: "member-management",
-        member_id: memberId,
-        previous: {
-          full_name: target.full_name,
-          role: target.role,
-          status: target.status,
-          access_level: target.access_level,
-        },
-        next: {
-          full_name: fullName,
-          role,
-          status,
-          access_level: accessLevel,
-        },
-      },
-    });
 
     return NextResponse.json({
       mode: "supabase",

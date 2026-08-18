@@ -12,14 +12,16 @@ loadEnv(".env.local");
 loadEnv(".env");
 
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+const anonKey =
+  process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ??
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 const adminEmail = process.env.STRATA_ADMIN_EMAIL ?? "strata.admin@example.com";
 const adminPassword = process.env.STRATA_ADMIN_PASSWORD ?? "StrataAdmin123!";
 const memberEmail = process.env.STRATA_MEMBER_EMAIL ?? "strata.member@example.com";
 const memberPassword = process.env.STRATA_MEMBER_PASSWORD ?? "StrataMember123!";
 
 if (!url || !anonKey) {
-  throw new Error("Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY before verifying live dashboard data.");
+  throw new Error("Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY before verifying live dashboard data.");
 }
 
 function loadEnv(file) {
@@ -105,13 +107,13 @@ async function loadDashboardData(session) {
 
   assert(member, "Signed-in user is not tied to an active members row.");
 
-  const [cards, documents, projects, activity] = await Promise.all([
+  const [cards, documents, projects, activity, budgetLines, expenses, vendors, directoryMembers] = await Promise.all([
     must(
       "dashboard cards read",
       client
         .from("cards")
         .select(
-          "id,title,description,type,status,visibility,updated_at,created_at,messages(id,body,created_at,author:members!messages_author_member_id_fkey(full_name)),proposals(id,title,status,deadline,votes(vote),approval_conditions(condition_text,status)),project:projects!cards_linked_project_id_fkey(name),creator:members!cards_creator_member_id_fkey(full_name)",
+          "id,title,description,type,status,visibility,updated_at,created_at,messages(id,body,created_at,author:members!messages_author_member_id_fkey(full_name)),proposals(id,title,status,deadline,votes(id,vote),approval_conditions(id,condition_text,status)),project:projects!cards_linked_project_id_fkey(name),creator:members!cards_creator_member_id_fkey(full_name)",
         )
         .eq("committee_id", member.committee_id)
         .order("updated_at", { ascending: false })
@@ -144,9 +146,41 @@ async function loadDashboardData(session) {
         .order("created_at", { ascending: false })
         .limit(40),
     ),
+    must(
+      "search budget lines read",
+      client
+        .from("budget_lines")
+        .select("id,category,account_id")
+        .eq("committee_id", member.committee_id)
+        .limit(40),
+    ),
+    must(
+      "search expenses read",
+      client
+        .from("expenses")
+        .select("id,budget_line_id,amount")
+        .eq("committee_id", member.committee_id)
+        .limit(80),
+    ),
+    must(
+      "search vendors read",
+      client
+        .from("vendors")
+        .select("id,name")
+        .eq("committee_id", member.committee_id)
+        .limit(50),
+    ),
+    must(
+      "search member directory read",
+      client
+        .from("members")
+        .select("id,full_name")
+        .eq("committee_id", member.committee_id)
+        .limit(50),
+    ),
   ]);
 
-  return { member, cards, documents, projects, activity };
+  return { member, cards, documents, projects, activity, budgetLines, expenses, vendors, directoryMembers };
 }
 
 const adminClient = await signInClient(adminEmail, adminPassword);
@@ -154,6 +188,47 @@ const memberClient = await signInClient(memberEmail, memberPassword);
 
 const adminDashboard = await loadDashboardData(adminClient);
 const memberDashboard = await loadDashboardData(memberClient);
+
+for (const [label, records] of [
+  ["admin cards", adminDashboard.cards],
+  ["admin documents", adminDashboard.documents],
+  ["admin projects", adminDashboard.projects],
+  ["admin activity", adminDashboard.activity],
+  ["admin budget lines", adminDashboard.budgetLines],
+  ["admin expenses", adminDashboard.expenses],
+  ["admin vendors", adminDashboard.vendors],
+  ["admin member directory", adminDashboard.directoryMembers],
+  ["member cards", memberDashboard.cards],
+  ["member documents", memberDashboard.documents],
+  ["member projects", memberDashboard.projects],
+  ["member activity", memberDashboard.activity],
+  ["member budget lines", memberDashboard.budgetLines],
+  ["member expenses", memberDashboard.expenses],
+  ["member vendors", memberDashboard.vendors],
+  ["member directory", memberDashboard.directoryMembers],
+]) {
+  assert(
+    records.every((record) => typeof record.id === "string" && record.id.length > 0),
+    `${label} contains a row without a source identifier.`,
+  );
+}
+
+const nestedSourceRecords = adminDashboard.cards.flatMap((card) => [
+  ...(card.messages ?? []),
+  ...(card.proposals ?? []).flatMap((proposal) => [
+    proposal,
+    ...(proposal.votes ?? []),
+    ...(proposal.approval_conditions ?? []),
+  ]),
+]);
+assert(nestedSourceRecords.length > 0, "Seeded dashboard has no nested source records to verify.");
+assert(
+  nestedSourceRecords.every((record) => typeof record.id === "string" && record.id.length > 0),
+  "A nested dashboard record is missing its source identifier.",
+);
+assert(adminDashboard.budgetLines.length > 0, "Seeded search has no budget-line source records.");
+assert(adminDashboard.expenses.length > 0, "Seeded search has no expense source records.");
+assert(adminDashboard.directoryMembers.length > 0, "Seeded search has no member source records.");
 
 assert(adminDashboard.cards.some((card) => card.id === ADMIN_CARD_ID), "Admin dashboard cannot read admin-only card.");
 assert(memberDashboard.cards.length > 0, "Member dashboard has no visible cards.");
@@ -176,6 +251,10 @@ console.log(
         documents: adminDashboard.documents.length,
         projects: adminDashboard.projects.length,
         activity: adminDashboard.activity.length,
+        budgetLines: adminDashboard.budgetLines.length,
+        expenses: adminDashboard.expenses.length,
+        vendors: adminDashboard.vendors.length,
+        members: adminDashboard.directoryMembers.length,
       },
       member: {
         role: memberDashboard.member.role,
@@ -183,6 +262,10 @@ console.log(
         documents: memberDashboard.documents.length,
         projects: memberDashboard.projects.length,
         activity: memberDashboard.activity.length,
+        budgetLines: memberDashboard.budgetLines.length,
+        expenses: memberDashboard.expenses.length,
+        vendors: memberDashboard.vendors.length,
+        members: memberDashboard.directoryMembers.length,
       },
     },
     null,

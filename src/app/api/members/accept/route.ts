@@ -94,19 +94,6 @@ export async function POST(request: NextRequest) {
     full_name: invite.full_name,
   });
 
-  await admin.from("audit_log").insert({
-    committee_id: invite.committee_id,
-    user_id: user.id,
-    action: "Accepted member invite",
-    target: email,
-    metadata: {
-      workflow: "member-accept",
-      member_id: invite.id,
-      role: invite.role,
-      access_level: invite.access_level,
-    },
-  });
-
   return NextResponse.json({
     mode: "supabase",
     member: updatedMember,

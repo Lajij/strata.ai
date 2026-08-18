@@ -6,12 +6,14 @@ loadEnv(".env.local");
 loadEnv(".env");
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+const anonKey =
+  process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ??
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 const email = process.env.STRATA_EXPORT_EMAIL ?? process.env.STRATA_ADMIN_EMAIL ?? "strata.admin@example.com";
 const password = process.env.STRATA_EXPORT_PASSWORD ?? process.env.STRATA_ADMIN_PASSWORD ?? "StrataAdmin123!";
 
 if (!supabaseUrl || !anonKey) {
-  throw new Error("Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY to export AI audit records.");
+  throw new Error("Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY to export AI audit records.");
 }
 
 const authClient = createClient(supabaseUrl, anonKey, {

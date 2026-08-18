@@ -1,3 +1,4 @@
+import { resolveServiceKey } from "./service-key.mjs";
 import { spawn } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { createServer } from "node:net";
@@ -11,13 +12,14 @@ loadEnv(".env");
 const externalBrowserUrl = Boolean(process.env.STRATA_BROWSER_URL);
 const url = process.env.STRATA_BROWSER_URL ?? `http://127.0.0.1:${await getFreePort()}`;
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const serviceKey =
+  resolveServiceKey();
 const memberEmail = process.env.STRATA_MEMBER_EMAIL ?? "strata.member@example.com";
 const memberPassword = process.env.STRATA_MEMBER_PASSWORD ?? "StrataMember123!";
 const marker = `verify-ai-browser-${new Date().toISOString()}`;
 
 if (!supabaseUrl || !serviceKey) {
-  throw new Error("Set NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY for AI browser verification cleanup.");
+  throw new Error("Set NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SECRET_KEY for AI browser verification cleanup.");
 }
 
 const service = createClient(supabaseUrl, serviceKey, {
@@ -67,11 +69,46 @@ async function getFreePort() {
   });
 }
 
+// Vercel Preview deployments sit behind Deployment Protection. The
+// "Protection Bypass for Automation" secret lets verification traffic through
+// without weakening protection for anyone else. Absent, this is a no-op.
+// The secret is passed as a query parameter on the first navigation so Vercel
+// sets a bypass cookie scoped to the deployment origin. Sending it as a header
+// on every request would leak it to third-party origins the page contacts.
+const bypassSecret = process.env.VERCEL_AUTOMATION_BYPASS_SECRET ?? "";
+
+function withBypass(target) {
+  if (!bypassSecret) {
+    return target;
+  }
+
+  const parsed = new URL(target);
+  parsed.searchParams.set("x-vercel-protection-bypass", bypassSecret);
+  parsed.searchParams.set("x-vercel-set-bypass-cookie", "true");
+  return parsed.toString();
+}
+
 async function canReachApp() {
   try {
-    const response = await fetch(url, { signal: AbortSignal.timeout(1500) });
+    const response = await fetch(withBypass(url), {
+      redirect: "manual",
+      signal: AbortSignal.timeout(5000),
+    });
+
+    // Following the redirect would land on the Vercel login page and return
+    // 200, so protection has to be detected here rather than downstream.
+    if ((response.headers.get("location") ?? "").includes("vercel.com/sso")) {
+      throw new Error(
+        `Vercel Deployment Protection is blocking ${url}. Set a valid 32-character VERCEL_AUTOMATION_BYPASS_SECRET (Project Settings -> Deployment Protection -> Protection Bypass for Automation), or disable Vercel Authentication for Preview.`,
+      );
+    }
+
     return response.ok || response.status < 500;
-  } catch {
+  } catch (error) {
+    if (error instanceof Error && error.message.includes("Deployment Protection")) {
+      throw error;
+    }
+
     return false;
   }
 }
@@ -209,7 +246,7 @@ try {
     window.__STRATA_AI_VERIFICATION_MARKER__ = value;
   }, marker);
 
-  await page.goto(url, { waitUntil: "networkidle" });
+  await page.goto(withBypass(url), { waitUntil: "networkidle" });
   try {
     await page.waitForFunction(() => document.documentElement.dataset.strataHydrated === "true", {
       timeout: 20000,
@@ -264,7 +301,7 @@ try {
   });
   await page.locator('input[aria-label="Email"] ~ input[aria-label="Password"] ~ button').click();
   try {
-    await page.getByText(memberEmail).waitFor({ timeout: 20000 });
+    await page.getByText(memberEmail).first().waitFor({ timeout: 20000 });
     await page.getByText("Workspace updated").waitFor({ timeout: 20000 });
   } catch (error) {
     const bodyText = await page.locator("body").innerText().catch(() => "");

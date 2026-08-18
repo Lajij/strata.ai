@@ -1,3 +1,4 @@
+import { resolveServiceKey } from "./service-key.mjs";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { createClient } from "@supabase/supabase-js";
@@ -82,6 +83,7 @@ const appDataRoute = read("src/app/api/app-data/route.ts");
 const documentRoute = read("src/app/api/documents/create/route.ts");
 const supabaseServer = read("src/lib/supabase/server.ts");
 const supabaseClient = read("src/lib/supabase/client.ts");
+const supabaseAdmin = read("src/lib/supabase/admin.ts");
 const storageMigration = read("supabase/migrations/202606260002_document_storage_bucket.sql");
 const readme = read("README.md");
 
@@ -96,10 +98,12 @@ assert(documentRoute.includes("getSupabaseServerClient"), "Document route must u
 assert(appDataRoute.includes("getStrataAppData"), "App data route must delegate through the RLS-backed app data loader");
 for (const source of [aiRoute, workflowRoute, appDataRoute, documentRoute]) {
   assert(!source.includes("SUPABASE_SERVICE_ROLE_KEY"), "RLS-sensitive API route must not reference the service role key");
+  assert(!source.includes("SUPABASE_SECRET_KEY"), "RLS-sensitive API route must not reference the secret key");
 }
 
 assert(supabaseServer.includes("createServerClient"), "Server client must use SSR cookies/session support");
 assert(supabaseClient.includes("createBrowserClient"), "Browser client must use Supabase SSR browser client");
+assert(supabaseAdmin.startsWith('import "server-only";'), "Admin client must be guarded by server-only");
 assert(aiRoute.includes("hasGatewayCredentials"), "AI route must expose live/fallback gateway mode selection");
 assert(aiRoute.includes("forceFallback"), "AI route must support deterministic fallback verification");
 assert(storageMigration.includes(bucket), "Storage bucket migration must configure the document bucket");
@@ -107,19 +111,29 @@ assert(storageMigration.includes("public = excluded.public"), "Storage bucket mu
 assert(readme.includes("Production Readiness Checklist"), "README must include the production readiness checklist");
 assert(readme.includes("STRATA_BROWSER_URL"), "README must document preview/browser verification through STRATA_BROWSER_URL");
 
-const browserFacingFiles = [...listFiles("src"), "middleware.ts"].filter((file) => existsSync(join(root, file)));
+// src/proxy.ts is covered by listFiles("src"); assert it exists so a silently
+// undetected proxy (wrong location) cannot quietly drop session enforcement.
+assert(existsSync(join(root, "src/proxy.ts")), "Proxy must live at src/proxy.ts for Next to detect it");
+
+const browserFacingFiles = listFiles("src").filter(
+  (file) => file !== "src/lib/supabase/admin.ts" && existsSync(join(root, file)),
+);
 for (const file of browserFacingFiles) {
   const source = read(file);
   assert(!source.includes("SUPABASE_SERVICE_ROLE_KEY"), `Service role key reference found in browser/app code: ${file}`);
+  assert(!source.includes("SUPABASE_SECRET_KEY"), `Secret key reference found in browser/app code: ${file}`);
 }
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const anonKey =
+  process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ??
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+const serviceKey =
+  resolveServiceKey();
 
 assert(supabaseUrl?.includes(expectedProjectRef), `NEXT_PUBLIC_SUPABASE_URL must point to ${expectedProjectRef}`);
-assert(Boolean(anonKey), "NEXT_PUBLIC_SUPABASE_ANON_KEY is required for production readiness checks");
-assert(Boolean(serviceKey), "SUPABASE_SERVICE_ROLE_KEY is required locally for production readiness checks");
+assert(Boolean(anonKey), "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY is required for production readiness checks");
+assert(Boolean(serviceKey), "SUPABASE_SECRET_KEY is required locally for production readiness checks");
 
 const service = createClient(supabaseUrl, serviceKey, {
   auth: { autoRefreshToken: false, persistSession: false },
@@ -155,14 +169,17 @@ assert(member.status === "active", "Seeded member must be active");
 await must("document bucket lookup", service.storage.getBucket(bucket));
 
 const objectPath = `${member.committee_id}/production-ready-${Date.now()}/storage-smoke.txt`;
-await must(
-  "member storage smoke upload",
-  memberClient.storage.from(bucket).upload(objectPath, new Blob(["production readiness smoke"], { type: "text/plain" }), {
-    contentType: "text/plain",
-    upsert: false,
-  }),
-);
-await must("member storage smoke cleanup", service.storage.from(bucket).remove([objectPath]));
+try {
+  await must(
+    "member storage smoke upload",
+    memberClient.storage.from(bucket).upload(objectPath, new Blob(["production readiness smoke"], { type: "text/plain" }), {
+      contentType: "text/plain",
+      upsert: false,
+    }),
+  );
+} finally {
+  await must("member storage smoke cleanup", service.storage.from(bucket).remove([objectPath]));
+}
 
 const [cards, documents, lawChunks] = await Promise.all([
   must("member visible card read", memberClient.from("cards").select("id").limit(1)),
