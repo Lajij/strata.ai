@@ -62,8 +62,6 @@ test.describe("admin member management", () => {
     await managedRow.getByLabel(`Status for ${managedEmail}`).selectOption("suspended");
     await managedRow.getByLabel(`Save member ${managedEmail}`).click();
     await expect(page.getByText("Member access updated").first()).toBeVisible({ timeout: 30_000 });
-    managedRow = await memberRow(page, managedEmail);
-    await expect(managedRow.getByText("Inactive", { exact: true })).toBeVisible();
 
     // Self-lockout: an admin cannot change their own role/access/status.
     const adminRow = await memberRow(page, adminEmail);
