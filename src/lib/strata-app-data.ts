@@ -995,7 +995,7 @@ export async function getStrataAppData(accessToken?: string): Promise<StrataAppD
           supabaseApprovalResponses,
         ),
       )
-    : fallbackMotions;
+    : [];
   const cards = supabaseCards.map((card) => {
     const mapped = mapCard(card, supabaseDocuments, supabaseAttachments);
     return {

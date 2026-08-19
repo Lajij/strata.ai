@@ -141,6 +141,7 @@ test.describe("committee approval flow", () => {
       const crossTitles = (crossBody.motions ?? []).map((item: { title: string }) => item.title);
       expect(crossTitles).not.toContain(title);
       expect(crossTitles).not.toContain(failTitle);
+      expect(crossBody.motions ?? []).toEqual([]);
 
       const crossRespond = await cross.post("/api/workflow/respond-approval", {
         data: { motionId, response: "approve" },
