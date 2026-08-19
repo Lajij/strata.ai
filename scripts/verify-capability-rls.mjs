@@ -28,6 +28,17 @@ const HIDDEN_INCIDENT = "dddddddd-0000-4000-8000-000000000001";
 const MOTION_ONE = "cccccccc-0000-4000-8000-000000000010";
 const MOTION_TWO = "cccccccc-0000-4000-8000-000000000011";
 const MOTION_AUDIT = "cccccccc-0000-4000-8000-000000000012";
+const APPROVAL_MOTION_PASS = "cccccccc-0000-4000-8000-000000000020";
+const APPROVAL_MOTION_FAIL = "cccccccc-0000-4000-8000-000000000021";
+const APPROVAL_MOTION_NODECIDE = "cccccccc-0000-4000-8000-000000000022";
+const APPROVAL_MOTION_OPEN = "cccccccc-0000-4000-8000-000000000023";
+const APPROVAL_MOTION_DRAFT = "cccccccc-0000-4000-8000-000000000024";
+const APPROVAL_MOTION_SUPERSEDE = "cccccccc-0000-4000-8000-000000000025";
+const APPROVAL_REQUEST_PASS = "eeeeeeee-0000-4000-8000-000000000020";
+const APPROVAL_REQUEST_FAIL = "eeeeeeee-0000-4000-8000-000000000021";
+const APPROVAL_REQUEST_NODECIDE = "eeeeeeee-0000-4000-8000-000000000022";
+const APPROVAL_REQUEST_OPEN = "eeeeeeee-0000-4000-8000-000000000023";
+const APPROVAL_REQUEST_SUPERSEDE = "eeeeeeee-0000-4000-8000-000000000024";
 let started = false;
 
 function run(command, args, { allowFailure = false, input } = {}) {
@@ -294,7 +305,189 @@ try {
     "1",
   );
 
-  console.log("Portable Postgres RLS capability verification passed (six personas, cross-committee, attribution, finance, parent visibility, member-delete denial, motion lifecycle). ");
+
+  // Issue #6 (v1): committee approvals on an open motion.
+  // Eligible voters in Committee A = admin + treasurer + member = 3 (read_only and
+  // suspended are excluded from the denominator). Simple strict majority:
+  // PASSED iff 2*approvals>eligible; FAILED iff 2*rejections>=eligible (unwinnable);
+  // otherwise the open->decided transition is rejected (fail-closed). The
+  // guard_motion_outcome trigger recomputes the outcome from attributed responses.
+
+  // PASSED: 2 of 3 approvals -> decided with outcome 'passed'.
+  asUser(MEMBER_USER, `
+    insert into public.motions (id, committee_id, title, context, creator_member_id)
+    values ('${APPROVAL_MOTION_PASS}', '${COMMITTEE_A}', 'Approval pass motion', 'Passes with 2/3 approvals', '${MEMBER_MEMBER}');
+  `);
+  asUser(MEMBER_USER, `update public.motions set status = 'open' where id = '${APPROVAL_MOTION_PASS}';`);
+  asUser(MEMBER_USER, `
+    insert into public.approval_requests (id, committee_id, motion_id, opened_by_member_id)
+    values ('${APPROVAL_REQUEST_PASS}', '${COMMITTEE_A}', '${APPROVAL_MOTION_PASS}', '${MEMBER_MEMBER}');
+  `);
+  asUser(ADMIN_USER, `
+    insert into public.approval_responses (committee_id, approval_request_id, member_id, response)
+    values ('${COMMITTEE_A}', '${APPROVAL_REQUEST_PASS}', '${ADMIN_MEMBER}', 'approve');
+  `);
+  asUser(MEMBER_USER, `
+    insert into public.approval_responses (committee_id, approval_request_id, member_id, response)
+    values ('${COMMITTEE_A}', '${APPROVAL_REQUEST_PASS}', '${MEMBER_MEMBER}', 'approve');
+  `);
+  asUser(MEMBER_USER, `update public.motions set status = 'decided' where id = '${APPROVAL_MOTION_PASS}';`);
+  assert.equal(
+    asUser(MEMBER_USER, `select outcome from public.motions where id = '${APPROVAL_MOTION_PASS}';`).stdout.trim(),
+    "passed",
+  );
+
+  // FAILED: 2 of 3 rejections (unwinnable) -> decided with outcome 'failed'.
+  asUser(MEMBER_USER, `
+    insert into public.motions (id, committee_id, title, context, creator_member_id)
+    values ('${APPROVAL_MOTION_FAIL}', '${COMMITTEE_A}', 'Approval fail motion', 'Fails with 2/3 rejections', '${MEMBER_MEMBER}');
+  `);
+  asUser(MEMBER_USER, `update public.motions set status = 'open' where id = '${APPROVAL_MOTION_FAIL}';`);
+  asUser(MEMBER_USER, `
+    insert into public.approval_requests (id, committee_id, motion_id, opened_by_member_id)
+    values ('${APPROVAL_REQUEST_FAIL}', '${COMMITTEE_A}', '${APPROVAL_MOTION_FAIL}', '${MEMBER_MEMBER}');
+  `);
+  asUser(TREASURER_USER, `
+    insert into public.approval_responses (committee_id, approval_request_id, member_id, response)
+    values ('${COMMITTEE_A}', '${APPROVAL_REQUEST_FAIL}', '${TREASURER_MEMBER}', 'reject');
+  `);
+  asUser(MEMBER_USER, `
+    insert into public.approval_responses (committee_id, approval_request_id, member_id, response)
+    values ('${COMMITTEE_A}', '${APPROVAL_REQUEST_FAIL}', '${MEMBER_MEMBER}', 'reject');
+  `);
+  asUser(MEMBER_USER, `update public.motions set status = 'decided' where id = '${APPROVAL_MOTION_FAIL}';`);
+  assert.equal(
+    asUser(MEMBER_USER, `select outcome from public.motions where id = '${APPROVAL_MOTION_FAIL}';`).stdout.trim(),
+    "failed",
+  );
+
+  // NOT-DECIDABLE: 1 of 3 approvals is neither a majority nor unwinnable, so the
+  // open->decided transition raises and the motion stays open.
+  asUser(MEMBER_USER, `
+    insert into public.motions (id, committee_id, title, context, creator_member_id)
+    values ('${APPROVAL_MOTION_NODECIDE}', '${COMMITTEE_A}', 'Approval not decidable motion', '1/3 is neither majority nor unwinnable', '${MEMBER_MEMBER}');
+  `);
+  asUser(MEMBER_USER, `update public.motions set status = 'open' where id = '${APPROVAL_MOTION_NODECIDE}';`);
+  asUser(MEMBER_USER, `
+    insert into public.approval_requests (id, committee_id, motion_id, opened_by_member_id)
+    values ('${APPROVAL_REQUEST_NODECIDE}', '${COMMITTEE_A}', '${APPROVAL_MOTION_NODECIDE}', '${MEMBER_MEMBER}');
+  `);
+  asUser(ADMIN_USER, `
+    insert into public.approval_responses (committee_id, approval_request_id, member_id, response)
+    values ('${COMMITTEE_A}', '${APPROVAL_REQUEST_NODECIDE}', '${ADMIN_MEMBER}', 'approve');
+  `);
+  const notDecidable = asUser(
+    MEMBER_USER,
+    `update public.motions set status = 'decided' where id = '${APPROVAL_MOTION_NODECIDE}';`,
+    { allowFailure: true },
+  );
+  assert.notEqual(notDecidable.status, 0);
+  assert.match(notDecidable.stderr, /cannot be decided yet/i);
+  assert.equal(
+    asUser(MEMBER_USER, `select status from public.motions where id = '${APPROVAL_MOTION_NODECIDE}';`).stdout.trim(),
+    "open",
+  );
+
+  // An open motion with a request and no responses yet, reused for isolation
+  // and read-only/draft denial assertions.
+  asUser(MEMBER_USER, `
+    insert into public.motions (id, committee_id, title, context, creator_member_id)
+    values ('${APPROVAL_MOTION_OPEN}', '${COMMITTEE_A}', 'Approval open motion', 'Stays open for denial tests', '${MEMBER_MEMBER}');
+  `);
+  asUser(MEMBER_USER, `update public.motions set status = 'open' where id = '${APPROVAL_MOTION_OPEN}';`);
+  asUser(MEMBER_USER, `
+    insert into public.approval_requests (id, committee_id, motion_id, opened_by_member_id)
+    values ('${APPROVAL_REQUEST_OPEN}', '${COMMITTEE_A}', '${APPROVAL_MOTION_OPEN}', '${MEMBER_MEMBER}');
+  `);
+
+  // Cross-committee isolation: a Committee B member sees 0 of Committee A's
+  // approval_requests and cannot insert a response for an A motion (RLS).
+  assert.equal(
+    asUser(CROSS_USER, `select count(*) from public.approval_requests where motion_id = '${APPROVAL_MOTION_OPEN}';`).stdout.trim(),
+    "0",
+  );
+  const crossResponse = asUser(CROSS_USER, `
+    insert into public.approval_responses (committee_id, approval_request_id, member_id, response)
+    values ('${COMMITTEE_A}', '${APPROVAL_REQUEST_OPEN}', 'bbbbbbbb-0000-4000-8000-000000000007', 'approve');
+  `, { allowFailure: true });
+  assert.notEqual(crossResponse.status, 0);
+  assert.match(crossResponse.stderr, /row-level security/i);
+
+  // read_only members cannot request or respond (they lack write_records).
+  const readOnlyRequest = asUser(READ_ONLY_USER, `
+    insert into public.approval_requests (committee_id, motion_id, opened_by_member_id)
+    values ('${COMMITTEE_A}', '${APPROVAL_MOTION_OPEN}', '${READ_ONLY_MEMBER}');
+  `, { allowFailure: true });
+  assert.notEqual(readOnlyRequest.status, 0);
+  assert.match(readOnlyRequest.stderr, /row-level security/i);
+  const readOnlyResponse = asUser(READ_ONLY_USER, `
+    insert into public.approval_responses (committee_id, approval_request_id, member_id, response)
+    values ('${COMMITTEE_A}', '${APPROVAL_REQUEST_OPEN}', '${READ_ONLY_MEMBER}', 'approve');
+  `, { allowFailure: true });
+  assert.notEqual(readOnlyResponse.status, 0);
+  assert.match(readOnlyResponse.stderr, /row-level security/i);
+
+  // An approval_request can only be opened on an OPEN motion (RLS exists() guard).
+  asUser(MEMBER_USER, `
+    insert into public.motions (id, committee_id, title, context, creator_member_id)
+    values ('${APPROVAL_MOTION_DRAFT}', '${COMMITTEE_A}', 'Approval draft motion', 'Never opened', '${MEMBER_MEMBER}');
+  `);
+  const draftRequest = asUser(MEMBER_USER, `
+    insert into public.approval_requests (committee_id, motion_id, opened_by_member_id)
+    values ('${COMMITTEE_A}', '${APPROVAL_MOTION_DRAFT}', '${MEMBER_MEMBER}');
+  `, { allowFailure: true });
+  assert.notEqual(draftRequest.status, 0);
+  assert.match(draftRequest.stderr, /row-level security/i);
+
+  // Supersede/last-wins: approve then reject leaves the final response 'reject'.
+  asUser(MEMBER_USER, `
+    insert into public.motions (id, committee_id, title, context, creator_member_id)
+    values ('${APPROVAL_MOTION_SUPERSEDE}', '${COMMITTEE_A}', 'Approval supersede motion', 'Admin flips approve to reject', '${MEMBER_MEMBER}');
+  `);
+  asUser(MEMBER_USER, `update public.motions set status = 'open' where id = '${APPROVAL_MOTION_SUPERSEDE}';`);
+  asUser(MEMBER_USER, `
+    insert into public.approval_requests (id, committee_id, motion_id, opened_by_member_id)
+    values ('${APPROVAL_REQUEST_SUPERSEDE}', '${COMMITTEE_A}', '${APPROVAL_MOTION_SUPERSEDE}', '${MEMBER_MEMBER}');
+  `);
+  asUser(ADMIN_USER, `
+    insert into public.approval_responses (committee_id, approval_request_id, member_id, response)
+    values ('${COMMITTEE_A}', '${APPROVAL_REQUEST_SUPERSEDE}', '${ADMIN_MEMBER}', 'approve');
+  `);
+  asUser(ADMIN_USER, `
+    insert into public.approval_responses (committee_id, approval_request_id, member_id, response)
+    values ('${COMMITTEE_A}', '${APPROVAL_REQUEST_SUPERSEDE}', '${ADMIN_MEMBER}', 'reject')
+    on conflict (approval_request_id, member_id) do update set response = excluded.response, responded_at = now();
+  `);
+  assert.equal(
+    asUser(MEMBER_USER, `select response from public.approval_responses where approval_request_id = '${APPROVAL_REQUEST_SUPERSEDE}' and member_id = '${ADMIN_MEMBER}';`).stdout.trim(),
+    "reject",
+  );
+  assert.equal(
+    asUser(MEMBER_USER, `select count(*) from public.approval_responses where approval_request_id = '${APPROVAL_REQUEST_SUPERSEDE}' and response = 'approve';`).stdout.trim(),
+    "0",
+  );
+
+  // The existing bare open->decided motion (no approval_request) keeps outcome NULL.
+  assert.equal(
+    asUser(MEMBER_USER, `select coalesce(outcome::text, 'none') from public.motions where id = '${MOTION_ONE}';`).stdout.trim(),
+    "none",
+  );
+
+  // No DELETE policies (and no DELETE grant) => fail-closed: rows survive.
+  const deleteResponse = asUser(MEMBER_USER, `delete from public.approval_responses where approval_request_id = '${APPROVAL_REQUEST_PASS}';`, { allowFailure: true });
+  assert.notEqual(deleteResponse.status, 0);
+  assert.equal(
+    psql(`select count(*) from public.approval_responses where approval_request_id = '${APPROVAL_REQUEST_PASS}';`).stdout.trim(),
+    "2",
+  );
+  const deleteRequest = asUser(MEMBER_USER, `delete from public.approval_requests where id = '${APPROVAL_REQUEST_PASS}';`, { allowFailure: true });
+  assert.notEqual(deleteRequest.status, 0);
+  assert.equal(
+    psql(`select count(*) from public.approval_requests where id = '${APPROVAL_REQUEST_PASS}';`).stdout.trim(),
+    "1",
+  );
+
+  console.log("Portable Postgres RLS capability verification passed (six personas, cross-committee, attribution, finance, parent visibility, member-delete denial, motion lifecycle, committee approvals). ");
   console.log("This substitutes only the unavailable vector column type; exact Supabase replay remains a separate gate.");
 } finally {
   if (started) {

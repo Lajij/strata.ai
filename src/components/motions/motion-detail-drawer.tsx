@@ -59,11 +59,61 @@ function DrawerBody({ motion, onClose }: { motion: Motion; onClose: () => void }
     }
   }
 
+  async function requestApproval() {
+    setStatus({ state: "loading", message: "Requesting approval..." })
+
+    try {
+      const response = await fetch("/api/workflow/request-approval", {
+        method: "POST",
+        headers: await authHeaders(),
+        body: JSON.stringify({ motionId: motion.id }),
+      })
+      const body = (await response.json()) as { message?: string; error?: string }
+
+      if (!response.ok) {
+        throw new Error(body.error ?? "Approval request could not be opened")
+      }
+
+      setStatus({ state: "success", message: body.message ?? "Approval request opened" })
+      await refreshData()
+    } catch (error) {
+      setStatus({
+        state: "error",
+        message: error instanceof Error ? error.message : "Approval request failed",
+      })
+    }
+  }
+
+  async function respondApproval(value: "approve" | "reject") {
+    setStatus({ state: "loading", message: `Recording ${value}...` })
+
+    try {
+      const response = await fetch("/api/workflow/respond-approval", {
+        method: "POST",
+        headers: await authHeaders(),
+        body: JSON.stringify({ motionId: motion.id, response: value }),
+      })
+      const body = (await response.json()) as { message?: string; error?: string }
+
+      if (!response.ok) {
+        throw new Error(body.error ?? "Approval response could not be recorded")
+      }
+
+      setStatus({ state: "success", message: body.message ?? "Approval response recorded" })
+      await refreshData()
+    } catch (error) {
+      setStatus({
+        state: "error",
+        message: error instanceof Error ? error.message : "Approval response failed",
+      })
+    }
+  }
+
   return (
     <div className="flex flex-col">
       <div className="flex flex-col gap-3 border-b border-border px-6 pb-5 pt-6">
         <div className="flex flex-wrap items-center gap-2">
-          <MotionStatusBadge status={motion.status} />
+          <MotionStatusBadge status={motion.status} outcome={motion.outcome} />
           {terminal ? (
             <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
               <LockKeyhole className="size-3.5" />
@@ -90,6 +140,68 @@ function DrawerBody({ motion, onClose }: { motion: Motion; onClose: () => void }
           <p className="text-pretty leading-relaxed text-foreground">
             {motion.context || "No context recorded."}
           </p>
+        </section>
+
+        <Separator />
+
+        <section className="grid gap-3" aria-labelledby="motion-approval-heading">
+          <div>
+            <h3 id="motion-approval-heading" className="font-semibold">Approval</h3>
+            <p className="text-sm text-muted-foreground">
+              Eligible members record attributed approve/reject responses. A motion is
+              decided only once a simple majority is recorded.
+            </p>
+          </div>
+
+          {motion.approval ? (
+            <div className="grid gap-3">
+              <p className="text-sm text-muted-foreground">
+                {motion.approval.approvals} approve &middot; {motion.approval.rejections} reject &middot; {motion.approval.eligible} eligible &middot; threshold {motion.approval.threshold}
+              </p>
+              {motion.approval.responses.length > 0 ? (
+                <ul className="grid gap-1">
+                  {motion.approval.responses.map((entry, index) => (
+                    <li
+                      key={`${entry.member}-${index}`}
+                      className="flex items-center justify-between rounded-lg border border-border p-2 text-sm"
+                    >
+                      <span className="font-medium">{entry.member}</span>
+                      <span className="text-xs text-muted-foreground">
+                        {entry.response} &middot; {entry.time}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-sm text-muted-foreground">No responses recorded yet.</p>
+              )}
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  onClick={() => respondApproval("approve")}
+                  disabled={pending || terminal || motion.statusValue !== "open"}
+                >
+                  Approve
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => respondApproval("reject")}
+                  disabled={pending || terminal || motion.statusValue !== "open"}
+                >
+                  Reject
+                </Button>
+              </div>
+            </div>
+          ) : motion.statusValue === "open" ? (
+            <Button type="button" onClick={requestApproval} disabled={pending}>
+              Request approval
+            </Button>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              No approval request was opened for this motion.
+            </p>
+          )}
         </section>
 
         <Separator />

@@ -33,6 +33,8 @@ export type VoteValue = "yes" | "no" | "abstain";
 export type DocumentStatusDb = "uploaded" | "needs_extraction" | "markdown_ready" | "indexed" | "review_required";
 export type ProjectStatusDb = "on_track" | "at_risk" | "needs_decision" | "resolved";
 export type MotionStatusDb = "draft" | "open" | "decided" | "withdrawn";
+export type MotionOutcomeDb = "passed" | "failed";
+export type ApprovalResponseValueDb = "approve" | "reject";
 
 export interface Database {
   public: {
@@ -130,6 +132,7 @@ export interface Database {
           opened_at: string | null;
           decided_at: string | null;
           withdrawn_at: string | null;
+          outcome: MotionOutcomeDb | null;
           created_at: string;
           updated_at: string;
         },
@@ -143,8 +146,45 @@ export interface Database {
           opened_at?: string | null;
           decided_at?: string | null;
           withdrawn_at?: string | null;
+          outcome?: MotionOutcomeDb | null;
           created_at?: string;
           updated_at?: string;
+        }
+      >;
+      approval_requests: Table<
+        {
+          id: string;
+          committee_id: string;
+          motion_id: string;
+          opened_by_member_id: string | null;
+          created_at: string;
+        },
+        {
+          id?: string;
+          committee_id: string;
+          motion_id: string;
+          opened_by_member_id?: string | null;
+          created_at?: string;
+        }
+      >;
+      approval_responses: Table<
+        {
+          id: string;
+          committee_id: string;
+          approval_request_id: string;
+          member_id: string;
+          response: ApprovalResponseValueDb;
+          created_at: string;
+          responded_at: string;
+        },
+        {
+          id?: string;
+          committee_id: string;
+          approval_request_id: string;
+          member_id: string;
+          response: ApprovalResponseValueDb;
+          created_at?: string;
+          responded_at?: string;
         }
       >;
       card_access: Table<
@@ -626,6 +666,8 @@ export interface Database {
       document_status: DocumentStatusDb;
       project_status: ProjectStatusDb;
       motion_status: MotionStatusDb;
+      motion_outcome: MotionOutcomeDb;
+      approval_response_value: ApprovalResponseValueDb;
     };
     CompositeTypes: Record<string, never>;
   };

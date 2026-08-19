@@ -1,4 +1,8 @@
-import type { MotionStatusDb } from "@/lib/supabase/types";
+import type {
+  ApprovalResponseValueDb,
+  MotionOutcomeDb,
+  MotionStatusDb,
+} from "@/lib/supabase/types";
 
 import {
   AlertTriangle,
@@ -210,6 +214,23 @@ export interface AuditEvent {
 }
 
 export type MotionStatus = "Draft" | "Open" | "Decided" | "Withdrawn";
+export type MotionOutcome = "Passed" | "Failed";
+
+export interface ApprovalResponse {
+  member: string;
+  response: ApprovalResponseValueDb;
+  time: string;
+}
+
+export interface ApprovalSummary {
+  requestId?: string;
+  openedBy?: string;
+  approvals: number;
+  rejections: number;
+  eligible: number;
+  threshold: number;
+  responses: ApprovalResponse[];
+}
 
 export interface Motion {
   id: string;
@@ -223,6 +244,9 @@ export interface Motion {
   openedAt?: string;
   decidedAt?: string;
   withdrawnAt?: string;
+  outcome?: MotionOutcome;
+  outcomeValue?: MotionOutcomeDb;
+  approval?: ApprovalSummary;
   audit: AuditEvent[];
 }
 
@@ -249,6 +273,8 @@ export const statusTone: Record<string, StatusTone> = {
   Draft: "amber",
   Decided: "green",
   Withdrawn: "slate",
+  Passed: "green",
+  Failed: "red",
 };
 
 export const kpis = [

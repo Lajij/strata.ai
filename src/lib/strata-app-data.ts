@@ -7,6 +7,8 @@ import {
   members as fallbackMembers,
   motions as fallbackMotions,
   projects as fallbackProjects,
+  type ApprovalResponse,
+  type ApprovalSummary,
   type AuditEvent,
   type BudgetLine,
   type BudgetRecommendation,
@@ -17,6 +19,7 @@ import {
   type InvoiceSummary,
   type Member,
   type Motion,
+  type MotionOutcome,
   type Project,
   type QuoteReviewSummary,
   type VendorRecord,
@@ -25,11 +28,13 @@ import {
 import { isMissingAuthSession, upstreamUnavailable } from "@/lib/runtime-configuration";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
 import type {
+  ApprovalResponseValueDb,
   CardStatusDb,
   CardTypeDb,
   Database,
   DocumentStatusDb,
   Json,
+  MotionOutcomeDb,
   MotionStatusDb,
   ProjectStatusDb,
   VisibilityLevel,
@@ -165,7 +170,26 @@ type MotionQueryRow = {
   opened_at: string | null;
   decided_at: string | null;
   withdrawn_at: string | null;
+  outcome: MotionOutcomeDb | null;
   creator?: { full_name: string | null } | null;
+};
+
+type ApprovalRequestQueryRow = {
+  id: string;
+  motion_id: string;
+  opened_by_member_id: string | null;
+  created_at: string;
+  opened_by?: { full_name: string | null } | null;
+};
+
+type ApprovalResponseQueryRow = {
+  id: string;
+  approval_request_id: string;
+  member_id: string;
+  response: ApprovalResponseValueDb;
+  created_at: string;
+  responded_at: string;
+  member?: { full_name: string | null } | null;
 };
 
 type AccountQueryRow = {
@@ -328,7 +352,40 @@ const motionStatusMap: Record<MotionStatusDb, Motion["status"]> = {
   withdrawn: "Withdrawn",
 };
 
-function mapMotion(row: MotionQueryRow, activity: AuditEvent[]): Motion {
+function mapMotion(
+  row: MotionQueryRow,
+  activity: AuditEvent[],
+  approvalRequests: ApprovalRequestQueryRow[],
+  approvalResponses: ApprovalResponseQueryRow[],
+  eligible: number,
+  threshold: number,
+): Motion {
+  const request = approvalRequests.find((item) => item.motion_id === row.id);
+  const requestResponses = request
+    ? approvalResponses.filter((item) => item.approval_request_id === request.id)
+    : [];
+  const approvals = requestResponses.filter((item) => item.response === "approve").length;
+  const rejections = requestResponses.filter((item) => item.response === "reject").length;
+  const approval: ApprovalSummary | undefined = request
+    ? {
+        requestId: request.id,
+        openedBy: request.opened_by?.full_name ?? undefined,
+        approvals,
+        rejections,
+        eligible,
+        threshold,
+        responses: requestResponses.map(
+          (item): ApprovalResponse => ({
+            member: item.member?.full_name ?? "Committee member",
+            response: item.response,
+            time: formatDateTime(item.responded_at),
+          }),
+        ),
+      }
+    : undefined;
+  const outcome: MotionOutcome | undefined =
+    row.outcome === "passed" ? "Passed" : row.outcome === "failed" ? "Failed" : undefined;
+
   return {
     id: row.id,
     title: row.title,
@@ -341,6 +398,9 @@ function mapMotion(row: MotionQueryRow, activity: AuditEvent[]): Motion {
     openedAt: row.opened_at ? formatDateTime(row.opened_at) : undefined,
     decidedAt: row.decided_at ? formatDateTime(row.decided_at) : undefined,
     withdrawnAt: row.withdrawn_at ? formatDateTime(row.withdrawn_at) : undefined,
+    outcome,
+    outcomeValue: row.outcome ?? undefined,
+    approval,
     audit: activity.filter((event) => event.motionId === row.id),
   };
 }
@@ -797,6 +857,8 @@ export async function getStrataAppData(accessToken?: string): Promise<StrataAppD
     quoteReviewsResult,
     membersResult,
     motionsResult,
+    approvalRequestsResult,
+    approvalResponsesResult,
   ] = await Promise.all([
     supabase
       .from("cards")
@@ -869,11 +931,21 @@ export async function getStrataAppData(accessToken?: string): Promise<StrataAppD
     supabase
       .from("motions")
       .select(
-        "id,title,context,status,creator_member_id,created_at,updated_at,opened_at,decided_at,withdrawn_at,creator:members!motions_creator_member_id_fkey(full_name)",
+        "id,title,context,status,creator_member_id,created_at,updated_at,opened_at,decided_at,withdrawn_at,outcome,creator:members!motions_creator_member_id_fkey(full_name)",
       )
       .eq("committee_id", member.committee_id)
       .order("updated_at", { ascending: false })
       .limit(30),
+    supabase
+      .from("approval_requests")
+      .select("id,motion_id,opened_by_member_id,created_at,opened_by:members!approval_requests_opened_by_member_id_fkey(full_name)")
+      .eq("committee_id", member.committee_id)
+      .limit(100),
+    supabase
+      .from("approval_responses")
+      .select("id,approval_request_id,member_id,response,created_at,responded_at,member:members!approval_responses_member_id_fkey(full_name)")
+      .eq("committee_id", member.committee_id)
+      .limit(200),
   ]);
 
   if (
@@ -892,7 +964,9 @@ export async function getStrataAppData(accessToken?: string): Promise<StrataAppD
     invoicesResult.error ||
     quoteReviewsResult.error ||
     membersResult.error ||
-    motionsResult.error
+    motionsResult.error ||
+    approvalRequestsResult.error ||
+    approvalResponsesResult.error
   ) {
     throw upstreamUnavailable("SUPABASE_APP_DATA_QUERY_FAILED");
   }
@@ -913,9 +987,24 @@ export async function getStrataAppData(accessToken?: string): Promise<StrataAppD
   const supabaseQuoteReviews = (quoteReviewsResult.data ?? []) as unknown as QuoteReviewQueryRow[];
   const supabaseMembers = (membersResult.data ?? []) as unknown as MemberQueryRow[];
   const supabaseMotions = (motionsResult.data ?? []) as unknown as MotionQueryRow[];
+  const supabaseApprovalRequests = (approvalRequestsResult.data ?? []) as unknown as ApprovalRequestQueryRow[];
+  const supabaseApprovalResponses = (approvalResponsesResult.data ?? []) as unknown as ApprovalResponseQueryRow[];
   const activity = supabaseActivity.map(mapAudit);
+  const eligibleVoters = supabaseMembers.filter(
+    (entry) => entry.status === "active" && entry.access_level !== "read_only",
+  ).length;
+  const approvalThreshold = Math.floor(eligibleVoters / 2) + 1;
   const motions = supabaseMotions.length
-    ? supabaseMotions.map((motion) => mapMotion(motion, activity))
+    ? supabaseMotions.map((motion) =>
+        mapMotion(
+          motion,
+          activity,
+          supabaseApprovalRequests,
+          supabaseApprovalResponses,
+          eligibleVoters,
+          approvalThreshold,
+        ),
+      )
     : fallbackMotions;
   const cards = supabaseCards.map((card) => {
     const mapped = mapCard(card, supabaseDocuments, supabaseAttachments);

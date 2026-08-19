@@ -14,6 +14,8 @@ const workflowActions = new Set([
   "create-motion",
   "advance-motion",
   "update-motion",
+  "request-approval",
+  "respond-approval",
 ]);
 
 function textValue(value: unknown, fallback: string) {
@@ -299,6 +301,15 @@ export async function POST(request: NextRequest, context: { params: Promise<{ ac
 
       if (updateError) {
         // guard_motion raises on illegal transitions or terminal-state edits.
+        // guard_motion_outcome raises "cannot be decided yet" when an open motion
+        // is decided before its approval request reaches a recorded majority.
+        if (/cannot be decided yet/i.test(updateError.message)) {
+          throw new PublicRequestError(
+            "MOTION_NOT_DECIDABLE",
+            "The motion cannot be decided yet: majority not reached and not yet unwinnable",
+            409,
+          );
+        }
         throw new PublicRequestError(
           "ILLEGAL_MOTION_TRANSITION",
           "The motion cannot move to that state",
@@ -313,6 +324,27 @@ export async function POST(request: NextRequest, context: { params: Promise<{ ac
         { workflow: action, motion_id: motionId, from, to },
         motionId,
       );
+
+      if (to === "decided") {
+        const { data: decided, error: outcomeError } = await client
+          .from("motions")
+          .select("outcome")
+          .eq("id", motionId)
+          .maybeSingle();
+
+        if (outcomeError) {
+          throw outcomeError;
+        }
+
+        return NextResponse.json({
+          mode: "supabase",
+          id: motionId,
+          message: `Motion advanced to ${to}`,
+          status: to,
+          outcome: decided?.outcome ?? null,
+        });
+      }
+
       return NextResponse.json({
         mode: "supabase",
         id: motionId,
@@ -361,6 +393,158 @@ export async function POST(request: NextRequest, context: { params: Promise<{ ac
 
       await audit(null, "Updated motion draft", title, { workflow: action, motion_id: motionId }, motionId);
       return NextResponse.json({ mode: "supabase", id: motionId, message: "Motion updated and audited" });
+    }
+
+    if (action === "request-approval") {
+      const motionId = requiredText(payload.motionId, "Motion");
+      const { data: motion, error: motionError } = await client
+        .from("motions")
+        .select("status")
+        .eq("id", motionId)
+        .eq("committee_id", activeMember.committee_id)
+        .maybeSingle();
+
+      if (motionError) {
+        throw motionError;
+      }
+      if (!motion) {
+        throw new PublicRequestError(
+          "MOTION_NOT_FOUND",
+          "Motion was not found in your committee",
+          404,
+        );
+      }
+      if (motion.status !== "open") {
+        throw new PublicRequestError(
+          "MOTION_NOT_OPEN",
+          "Approval can only be requested on an open motion",
+          409,
+        );
+      }
+
+      const { data: existing, error: existingError } = await client
+        .from("approval_requests")
+        .select("id")
+        .eq("motion_id", motionId)
+        .eq("committee_id", activeMember.committee_id)
+        .maybeSingle();
+
+      if (existingError) {
+        throw existingError;
+      }
+      if (existing) {
+        return NextResponse.json({
+          mode: "supabase",
+          id: existing.id,
+          message: "Approval request already exists for this motion",
+        });
+      }
+
+      const id = crypto.randomUUID();
+      const { error } = await client.from("approval_requests").insert({
+        id,
+        committee_id: activeMember.committee_id,
+        motion_id: motionId,
+        opened_by_member_id: activeMember.id,
+      });
+
+      if (error) {
+        throw error;
+      }
+
+      await audit(
+        null,
+        "Requested approval",
+        "Approval request opened",
+        { workflow: action, motion_id: motionId },
+        motionId,
+      );
+      return NextResponse.json({
+        mode: "supabase",
+        id,
+        message: "Approval request opened and audited",
+      });
+    }
+
+    if (action === "respond-approval") {
+      const motionId = requiredText(payload.motionId, "Motion");
+      const rawResponse = typeof payload.response === "string" ? payload.response : "";
+      if (rawResponse !== "approve" && rawResponse !== "reject") {
+        throw new PublicRequestError("REQUEST_FIELD_REQUIRED", "Response must be approve or reject");
+      }
+      const response = rawResponse;
+
+      const { data: motion, error: motionError } = await client
+        .from("motions")
+        .select("status")
+        .eq("id", motionId)
+        .eq("committee_id", activeMember.committee_id)
+        .maybeSingle();
+
+      if (motionError) {
+        throw motionError;
+      }
+      if (!motion) {
+        throw new PublicRequestError(
+          "MOTION_NOT_FOUND",
+          "Motion was not found in your committee",
+          404,
+        );
+      }
+      if (motion.status !== "open") {
+        throw new PublicRequestError(
+          "MOTION_NOT_OPEN",
+          "Approval can only be recorded while the motion is open",
+          409,
+        );
+      }
+
+      const { data: request, error: requestError } = await client
+        .from("approval_requests")
+        .select("id")
+        .eq("motion_id", motionId)
+        .eq("committee_id", activeMember.committee_id)
+        .maybeSingle();
+
+      if (requestError) {
+        throw requestError;
+      }
+      if (!request) {
+        throw new PublicRequestError(
+          "APPROVAL_REQUEST_NOT_FOUND",
+          "No approval request exists for this motion",
+          409,
+        );
+      }
+
+      const { error: responseError } = await client
+        .from("approval_responses")
+        .upsert(
+          {
+            committee_id: activeMember.committee_id,
+            approval_request_id: request.id,
+            member_id: activeMember.id,
+            response,
+            responded_at: new Date().toISOString(),
+          },
+          { onConflict: "approval_request_id,member_id" },
+        );
+
+      if (responseError) {
+        throw responseError;
+      }
+
+      await audit(
+        null,
+        "Responded to approval",
+        response,
+        { workflow: action, motion_id: motionId, response },
+        motionId,
+      );
+      return NextResponse.json({
+        mode: "supabase",
+        message: "Approval response recorded and audited",
+      });
     }
 
     const id = crypto.randomUUID();
