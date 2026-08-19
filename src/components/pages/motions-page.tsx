@@ -73,7 +73,7 @@ export function MotionsPage() {
                 <h3 className="text-pretty text-base font-semibold leading-snug">
                   {motion.title}
                 </h3>
-                <MotionStatusBadge status={motion.status} />
+                <MotionStatusBadge status={motion.status} outcome={motion.outcome} />
               </div>
               <p className="line-clamp-2 text-sm text-muted-foreground">
                 {motion.context || "No context recorded."}
