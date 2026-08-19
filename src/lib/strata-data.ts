@@ -1,3 +1,5 @@
+import type { MotionStatusDb } from "@/lib/supabase/types";
+
 import {
   AlertTriangle,
   Banknote,
@@ -203,7 +205,25 @@ export interface AuditEvent {
   target: string;
   time: string;
   cardId?: string;
+  motionId?: string;
   detail?: string;
+}
+
+export type MotionStatus = "Draft" | "Open" | "Decided" | "Withdrawn";
+
+export interface Motion {
+  id: string;
+  title: string;
+  context: string;
+  status: MotionStatus;
+  statusValue: MotionStatusDb;
+  creator: string;
+  created: string;
+  updated: string;
+  openedAt?: string;
+  decidedAt?: string;
+  withdrawnAt?: string;
+  audit: AuditEvent[];
 }
 
 export const statusTone: Record<string, StatusTone> = {
@@ -226,6 +246,9 @@ export const statusTone: Record<string, StatusTone> = {
   Medium: "amber",
   Low: "green",
   OpenIncident: "blue",
+  Draft: "amber",
+  Decided: "green",
+  Withdrawn: "slate",
 };
 
 export const kpis = [
@@ -504,6 +527,35 @@ export const activity: AuditEvent[] = [
   { actor: "System", action: "Queued Markdown extraction", target: "Progress Report 27", time: "25 Jun 2026 08:15" },
   { actor: "Treasurer", action: "Updated allowance", target: "Unit 20 make-good", time: "25 Jun 2026 08:11" },
   { actor: "System", action: "Created incident summary", target: "INC-017", time: "24 Jun 2026 19:04" },
+];
+
+export const motions: Motion[] = [
+  {
+    id: "MOTION-001",
+    title: "Approve fire door replacement",
+    context:
+      "Committee decision to replace the basement fire door and frame, subject to certification and make-good conditions.",
+    status: "Draft",
+    statusValue: "draft",
+    creator: "Ric Spooner",
+    created: "24 Jun 2026 09:00",
+    updated: "24 Jun 2026 09:00",
+    audit: [],
+  },
+  {
+    id: "MOTION-002",
+    title: "Adopt short-term letting by-law amendment",
+    context:
+      "Motion to adopt the drafted by-law amendment restricting short-term letting, recorded as decided by the committee.",
+    status: "Decided",
+    statusValue: "decided",
+    creator: "Deborah Frack",
+    created: "10 Jun 2026 12:00",
+    updated: "12 Jun 2026 16:30",
+    openedAt: "11 Jun 2026 09:00",
+    decidedAt: "12 Jun 2026 16:30",
+    audit: [],
+  },
 ];
 
 export const aiActions = [

@@ -9,6 +9,7 @@ export type NavKey =
   | "search"
   | "people"
   | "settings"
+  | "motions"
 
 export type BuildingArea =
   | "Lobby"

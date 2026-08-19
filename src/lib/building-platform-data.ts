@@ -16,6 +16,7 @@ import type {
   CardType as StrataCardType,
   GovernanceCard,
   Member,
+  Motion,
   Visibility,
 } from "@/lib/strata-data";
 
@@ -27,6 +28,7 @@ export interface BuildingPlatformData {
     role: string;
   };
   cards: Card[];
+  motions: Motion[];
   documents: DocItem[];
   people: Person[];
   activity: ActivityItem[];
@@ -61,6 +63,7 @@ export function mapStrataDataToBuildingPlatform(data: StrataAppData): BuildingPl
           role: data.auth.mode === "active" ? "Committee" : "Preview mode",
         },
     cards: data.cards.map((card) => mapGovernanceCard(card, people.length || 1)),
+    motions: data.motions,
     documents,
     people,
     activity: data.activity.map(mapActivity),

@@ -5,6 +5,7 @@ import {
   CircleDollarSign,
   FileText,
   FolderKanban,
+  Gavel,
   LayoutDashboard,
   LogOut,
   Megaphone,
@@ -32,6 +33,7 @@ const NAV_ITEMS: { key: NavKey; label: string; icon: typeof LayoutDashboard }[] 
     { key: "budget", label: "Budget", icon: CircleDollarSign },
     { key: "search", label: "Search", icon: Search },
     { key: "people", label: "People", icon: Users },
+    { key: "motions", label: "Motions", icon: Gavel },
     { key: "settings", label: "Settings", icon: Settings },
   ]
 

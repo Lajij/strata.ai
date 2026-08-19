@@ -6,6 +6,7 @@ on:
     branches:
       - main
       - "platform/**"
+      - codex/strata-v1-release-candidate
 
 # All jobs are intended to be required on pull requests. Source-inspection is
 # labelled as non-behavioural; the migration-replay, behavioural-rls, and

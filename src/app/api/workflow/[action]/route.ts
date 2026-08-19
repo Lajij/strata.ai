@@ -11,6 +11,9 @@ const workflowActions = new Set([
   "create-proposal",
   "cast-vote",
   "add-approval-condition",
+  "create-motion",
+  "advance-motion",
+  "update-motion",
 ]);
 
 function textValue(value: unknown, fallback: string) {
@@ -84,12 +87,19 @@ export async function POST(request: NextRequest, context: { params: Promise<{ ac
   const activeMember = member;
   const activeUser = user;
 
-  async function audit(cardId: string | null, eventAction: string, target: string, metadata: Json = {}) {
+  async function audit(
+    cardId: string | null,
+    eventAction: string,
+    target: string,
+    metadata: Json = {},
+    motionId?: string,
+  ) {
     const id = crypto.randomUUID();
     const { error } = await client.from("audit_log").insert({
       id,
       committee_id: activeMember.committee_id,
       card_id: cardId,
+      motion_id: motionId ?? null,
       user_id: activeUser.id,
       action: eventAction,
       target,
@@ -221,6 +231,136 @@ export async function POST(request: NextRequest, context: { params: Promise<{ ac
         vote,
       });
       return NextResponse.json({ mode: "supabase", id, message: "Vote cast and audited" });
+    }
+
+    if (action === "create-motion") {
+      const id = crypto.randomUUID();
+      const title = requiredText(payload.title, "Motion title");
+      const context = textValue(payload.context, "");
+      const { error } = await client.from("motions").insert({
+        id,
+        committee_id: activeMember.committee_id,
+        title,
+        context,
+        creator_member_id: activeMember.id,
+      });
+
+      if (error) {
+        throw error;
+      }
+
+      await audit(null, "Created motion", title, { workflow: action }, id);
+      return NextResponse.json({ mode: "supabase", id, message: "Motion created and audited" });
+    }
+
+    if (action === "advance-motion") {
+      const motionId = requiredText(payload.motionId, "Motion");
+      const rawTo = typeof payload.to === "string" ? payload.to : "";
+      if (rawTo !== "open" && rawTo !== "decided" && rawTo !== "withdrawn") {
+        throw new PublicRequestError("REQUEST_FIELD_REQUIRED", "Target state is required");
+      }
+      const to = rawTo;
+
+      const { data: current, error: fetchError } = await client
+        .from("motions")
+        .select("status")
+        .eq("id", motionId)
+        .eq("committee_id", activeMember.committee_id)
+        .maybeSingle();
+
+      if (fetchError) {
+        throw fetchError;
+      }
+      if (!current) {
+        throw new PublicRequestError(
+          "MOTION_NOT_FOUND",
+          "Motion was not found in your committee",
+          404,
+        );
+      }
+
+      const from = current.status;
+      const legal =
+        (from === "draft" && to === "open") ||
+        (from === "open" && to === "decided") ||
+        (from === "open" && to === "withdrawn");
+      if (!legal) {
+        throw new PublicRequestError(
+          "ILLEGAL_MOTION_TRANSITION",
+          `A ${from} motion cannot move to ${to}`,
+          409,
+        );
+      }
+
+      const { error: updateError } = await client
+        .from("motions")
+        .update({ status: to })
+        .eq("id", motionId);
+
+      if (updateError) {
+        // guard_motion raises on illegal transitions or terminal-state edits.
+        throw new PublicRequestError(
+          "ILLEGAL_MOTION_TRANSITION",
+          "The motion cannot move to that state",
+          409,
+        );
+      }
+
+      await audit(
+        null,
+        "Advanced motion",
+        `${from}->${to}`,
+        { workflow: action, motion_id: motionId, from, to },
+        motionId,
+      );
+      return NextResponse.json({
+        mode: "supabase",
+        id: motionId,
+        message: `Motion advanced to ${to}`,
+        status: to,
+      });
+    }
+
+    if (action === "update-motion") {
+      const motionId = requiredText(payload.motionId, "Motion");
+      const title = requiredText(payload.title, "Motion title");
+      const context = textValue(payload.context, "");
+      const { data: current, error: fetchError } = await client
+        .from("motions")
+        .select("status")
+        .eq("id", motionId)
+        .eq("committee_id", activeMember.committee_id)
+        .maybeSingle();
+
+      if (fetchError) {
+        throw fetchError;
+      }
+      if (!current) {
+        throw new PublicRequestError(
+          "MOTION_NOT_FOUND",
+          "Motion was not found in your committee",
+          404,
+        );
+      }
+      if (current.status !== "draft") {
+        throw new PublicRequestError(
+          "MOTION_NOT_EDITABLE",
+          "Only draft motions can be edited",
+          409,
+        );
+      }
+
+      const { error } = await client
+        .from("motions")
+        .update({ title, context })
+        .eq("id", motionId);
+
+      if (error) {
+        throw error;
+      }
+
+      await audit(null, "Updated motion draft", title, { workflow: action, motion_id: motionId }, motionId);
+      return NextResponse.json({ mode: "supabase", id: motionId, message: "Motion updated and audited" });
     }
 
     const id = crypto.randomUUID();

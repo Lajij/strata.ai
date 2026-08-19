@@ -9,6 +9,8 @@ import { SidebarNav } from "@/components/sidebar-nav"
 import { BuildingAssistant } from "@/components/assistant/building-assistant"
 import { CreateCardDialog } from "@/components/cards/create-card-dialog"
 import { CardDetailDrawer } from "@/components/cards/card-detail-drawer"
+import { CreateMotionDialog } from "@/components/motions/create-motion-dialog"
+import { MotionDetailDrawer } from "@/components/motions/motion-detail-drawer"
 import { DashboardPage } from "@/components/pages/dashboard-page"
 import { CardsPage } from "@/components/pages/cards-page"
 import { VotesPage } from "@/components/pages/votes-page"
@@ -19,6 +21,7 @@ import { BudgetPage } from "@/components/pages/budget-page"
 import { SearchPage } from "@/components/pages/search-page"
 import { PeoplePage } from "@/components/pages/people-page"
 import { SettingsPage } from "@/components/pages/settings-page"
+import { MotionsPage } from "@/components/pages/motions-page"
 import { Button } from "@/components/ui/button"
 import { getSupabaseBrowserClient } from "@/lib/supabase/client"
 import {
@@ -69,6 +72,10 @@ const PAGE_META: Record<NavKey, { title: string; description: string }> = {
     title: "Settings",
     description: "Read-only session and workspace source details.",
   },
+  motions: {
+    title: "Motions",
+    description: "Raise, open and decide committee motions through their lifecycle.",
+  },
 }
 
 function PageContent({ page }: { page: NavKey }) {
@@ -93,6 +100,8 @@ function PageContent({ page }: { page: NavKey }) {
       return <PeoplePage />
     case "settings":
       return <SettingsPage />
+    case "motions":
+      return <MotionsPage />
   }
 }
 
@@ -238,6 +247,8 @@ export function AppShell() {
       <BuildingAssistant />
       <CreateCardDialog />
       <CardDetailDrawer />
+      <CreateMotionDialog />
+      <MotionDetailDrawer />
     </div>
   )
 }
