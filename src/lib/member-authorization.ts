@@ -25,6 +25,15 @@ export const memberAccessLevels = new Set<MemberAccessLevel>([
   "read_only",
 ]);
 
+// Member capability matrix for manage_members (mirrors hasMemberCapability in
+// member-capabilities.ts; only admin, chair, and secretary can manage members).
+//   admin: { manageMembers: true }
+//   chair: { manageMembers: true }
+//   secretary: { manageMembers: true }
+//   treasurer: { manageMembers: false }
+//   member: { manageMembers: false }
+//   strata_manager: { manageMembers: false }
+
 export function canManageMembers(role: string, accessLevel: string): boolean {
   return hasMemberCapability(
     { role, accessLevel, status: "active" },

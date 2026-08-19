@@ -13,6 +13,13 @@
 # testing
 /coverage
 
+# Playwright e2e artefacts (report, screenshots, traces, persona state)
+/playwright-report/
+/test-results/
+/blob-report/
+/e2e/.persona-state.json
+/e2e/.storage/
+
 # next.js
 /.next/
 /out/

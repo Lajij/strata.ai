@@ -15,6 +15,11 @@ const eslintConfig = defineConfig([
     "build/**",
     "building-management-platform/**",
     "next-env.d.ts",
+    // Playwright e2e artefacts (reports, traces, captured screenshots/videos).
+    "playwright-report/**",
+    "test-results/**",
+    "blob-report/**",
+    "e2e/.storage/**",
   ]),
 ]);
 

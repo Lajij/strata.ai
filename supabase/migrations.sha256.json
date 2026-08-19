@@ -6,5 +6,7 @@
   "202606270001_member_invites.sql": "6f173c792a8f9a2e8b25a674649516cdb6db7fc552a18485107c856d9bbc72ec",
   "20260628145525_tighten_attachment_document_visibility.sql": "f489cdbac097082257c51269ef5b3532abb900fdd9fe8a25712a03e4eee0f5c7",
   "20260801053901_harden_member_lifecycle_audit.sql": "d8c65704014dba37a969766d47af8f08496516c18219dcaa7757f044d856a87e",
-  "20260815220003_reconcile_legacy_embedded_fixtures.sql": "bb77ee8332b3b1e3a1e7d837d67d33b283fb9f88db727e24cf0172e219e9bf87"
+  "20260815220003_reconcile_legacy_embedded_fixtures.sql": "bb77ee8332b3b1e3a1e7d837d67d33b283fb9f88db727e24cf0172e219e9bf87",
+  "202608160001_capability_and_attribution_hardening.sql": "f70dca72463676f394455e6e48af4f38ecae639d47dd09f3db1795627b2767cb",
+  "20260818100001_grant_service_role_table_access.sql": "a6d4bb35d99627bedda7c9b394f46dc04d42a2efcb3f3ff93bb062f99e73989f"
 }
