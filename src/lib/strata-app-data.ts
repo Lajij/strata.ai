@@ -357,8 +357,6 @@ function mapMotion(
   activity: AuditEvent[],
   approvalRequests: ApprovalRequestQueryRow[],
   approvalResponses: ApprovalResponseQueryRow[],
-  eligible: number,
-  threshold: number,
 ): Motion {
   const request = approvalRequests.find((item) => item.motion_id === row.id);
   const requestResponses = request
@@ -372,8 +370,6 @@ function mapMotion(
         openedBy: request.opened_by?.full_name ?? undefined,
         approvals,
         rejections,
-        eligible,
-        threshold,
         responses: requestResponses.map(
           (item): ApprovalResponse => ({
             member: item.member?.full_name ?? "Committee member",
@@ -990,10 +986,6 @@ export async function getStrataAppData(accessToken?: string): Promise<StrataAppD
   const supabaseApprovalRequests = (approvalRequestsResult.data ?? []) as unknown as ApprovalRequestQueryRow[];
   const supabaseApprovalResponses = (approvalResponsesResult.data ?? []) as unknown as ApprovalResponseQueryRow[];
   const activity = supabaseActivity.map(mapAudit);
-  const eligibleVoters = supabaseMembers.filter(
-    (entry) => entry.status === "active" && entry.access_level !== "read_only",
-  ).length;
-  const approvalThreshold = Math.floor(eligibleVoters / 2) + 1;
   const motions = supabaseMotions.length
     ? supabaseMotions.map((motion) =>
         mapMotion(
@@ -1001,8 +993,6 @@ export async function getStrataAppData(accessToken?: string): Promise<StrataAppD
           activity,
           supabaseApprovalRequests,
           supabaseApprovalResponses,
-          eligibleVoters,
-          approvalThreshold,
         ),
       )
     : fallbackMotions;

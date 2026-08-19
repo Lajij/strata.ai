@@ -10,5 +10,5 @@
   "202608160001_capability_and_attribution_hardening.sql": "f70dca72463676f394455e6e48af4f38ecae639d47dd09f3db1795627b2767cb",
   "20260818100001_grant_service_role_table_access.sql": "a6d4bb35d99627bedda7c9b394f46dc04d42a2efcb3f3ff93bb062f99e73989f",
   "20260819120001_motions_lifecycle.sql": "9ac1034d6a012000af0c7d3372cad2c209bd9b7c59bd337abe1fc14253a539f9",
-  "20260820120001_committee_approvals.sql": "671a4dd67ce44d4b2247515acc30d945f1076b5a25add495dc13c376e48588d2"
+  "20260820120001_committee_approvals.sql": "9971624de041f3efec3325aa1009b06a23dd9cc45c365d9ec326f3ecf79a5027"
 }

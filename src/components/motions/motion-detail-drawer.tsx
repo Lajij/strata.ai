@@ -148,15 +148,15 @@ function DrawerBody({ motion, onClose }: { motion: Motion; onClose: () => void }
           <div>
             <h3 id="motion-approval-heading" className="font-semibold">Approval</h3>
             <p className="text-sm text-muted-foreground">
-              Eligible members record attributed approve/reject responses. A motion is
-              decided only once a simple majority is recorded.
+              Members record attributed approve/reject responses. A motion is decided
+              on a simple majority of votes cast.
             </p>
           </div>
 
           {motion.approval ? (
             <div className="grid gap-3">
               <p className="text-sm text-muted-foreground">
-                {motion.approval.approvals} approve &middot; {motion.approval.rejections} reject &middot; {motion.approval.eligible} eligible &middot; threshold {motion.approval.threshold}
+                {motion.approval.approvals} approve &middot; {motion.approval.rejections} reject
               </p>
               {motion.approval.responses.length > 0 ? (
                 <ul className="grid gap-1">

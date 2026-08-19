@@ -30,13 +30,13 @@ const MOTION_TWO = "cccccccc-0000-4000-8000-000000000011";
 const MOTION_AUDIT = "cccccccc-0000-4000-8000-000000000012";
 const APPROVAL_MOTION_PASS = "cccccccc-0000-4000-8000-000000000020";
 const APPROVAL_MOTION_FAIL = "cccccccc-0000-4000-8000-000000000021";
-const APPROVAL_MOTION_NODECIDE = "cccccccc-0000-4000-8000-000000000022";
+const APPROVAL_MOTION_SINGLE = "cccccccc-0000-4000-8000-000000000022";
 const APPROVAL_MOTION_OPEN = "cccccccc-0000-4000-8000-000000000023";
 const APPROVAL_MOTION_DRAFT = "cccccccc-0000-4000-8000-000000000024";
 const APPROVAL_MOTION_SUPERSEDE = "cccccccc-0000-4000-8000-000000000025";
 const APPROVAL_REQUEST_PASS = "eeeeeeee-0000-4000-8000-000000000020";
 const APPROVAL_REQUEST_FAIL = "eeeeeeee-0000-4000-8000-000000000021";
-const APPROVAL_REQUEST_NODECIDE = "eeeeeeee-0000-4000-8000-000000000022";
+const APPROVAL_REQUEST_SINGLE = "eeeeeeee-0000-4000-8000-000000000022";
 const APPROVAL_REQUEST_OPEN = "eeeeeeee-0000-4000-8000-000000000023";
 const APPROVAL_REQUEST_SUPERSEDE = "eeeeeeee-0000-4000-8000-000000000024";
 let started = false;
@@ -307,16 +307,16 @@ try {
 
 
   // Issue #6 (v1): committee approvals on an open motion.
-  // Eligible voters in Committee A = admin + treasurer + member = 3 (read_only and
-  // suspended are excluded from the denominator). Simple strict majority:
-  // PASSED iff 2*approvals>eligible; FAILED iff 2*rejections>=eligible (unwinnable);
-  // otherwise the open->decided transition is rejected (fail-closed). The
-  // guard_motion_outcome trigger recomputes the outcome from attributed responses.
+  // Committee A eligible voters = admin + treasurer + member = 3 (read_only and
+  // suspended are excluded). The eligible count is informational only — it is NEVER
+  // the majority denominator. Simple majority of votes cast: PASSED iff
+  // approvals > rejections; FAILED otherwise. Any tally produces a definitive
+  // outcome; the guard_motion_outcome trigger recomputes it from attributed responses.
 
-  // PASSED: 2 of 3 approvals -> decided with outcome 'passed'.
+  // PASSED: 2 of 2 votes cast approvals -> decided with outcome 'passed'.
   asUser(MEMBER_USER, `
     insert into public.motions (id, committee_id, title, context, creator_member_id)
-    values ('${APPROVAL_MOTION_PASS}', '${COMMITTEE_A}', 'Approval pass motion', 'Passes with 2/3 approvals', '${MEMBER_MEMBER}');
+    values ('${APPROVAL_MOTION_PASS}', '${COMMITTEE_A}', 'Approval pass motion', 'Passes with 2 of 2 votes cast', '${MEMBER_MEMBER}');
   `);
   asUser(MEMBER_USER, `update public.motions set status = 'open' where id = '${APPROVAL_MOTION_PASS}';`);
   asUser(MEMBER_USER, `
@@ -337,10 +337,10 @@ try {
     "passed",
   );
 
-  // FAILED: 2 of 3 rejections (unwinnable) -> decided with outcome 'failed'.
+  // FAILED: 0 of 2 votes cast approvals, majority not met -> decided with outcome 'failed'.
   asUser(MEMBER_USER, `
     insert into public.motions (id, committee_id, title, context, creator_member_id)
-    values ('${APPROVAL_MOTION_FAIL}', '${COMMITTEE_A}', 'Approval fail motion', 'Fails with 2/3 rejections', '${MEMBER_MEMBER}');
+    values ('${APPROVAL_MOTION_FAIL}', '${COMMITTEE_A}', 'Approval fail motion', 'Fails with 0 of 2 votes cast', '${MEMBER_MEMBER}');
   `);
   asUser(MEMBER_USER, `update public.motions set status = 'open' where id = '${APPROVAL_MOTION_FAIL}';`);
   asUser(MEMBER_USER, `
@@ -361,31 +361,29 @@ try {
     "failed",
   );
 
-  // NOT-DECIDABLE: 1 of 3 approvals is neither a majority nor unwinnable, so the
-  // open->decided transition raises and the motion stays open.
+  // SINGLE APPROVE PASSES: 1 approve / 0 reject is a simple majority of the votes
+  // cast (1 of 1), so the open->decided transition records outcome 'passed'.
   asUser(MEMBER_USER, `
     insert into public.motions (id, committee_id, title, context, creator_member_id)
-    values ('${APPROVAL_MOTION_NODECIDE}', '${COMMITTEE_A}', 'Approval not decidable motion', '1/3 is neither majority nor unwinnable', '${MEMBER_MEMBER}');
+    values ('${APPROVAL_MOTION_SINGLE}', '${COMMITTEE_A}', 'Approval single-approve motion', 'Passes with 1 of 1 votes cast', '${MEMBER_MEMBER}');
   `);
-  asUser(MEMBER_USER, `update public.motions set status = 'open' where id = '${APPROVAL_MOTION_NODECIDE}';`);
+  asUser(MEMBER_USER, `update public.motions set status = 'open' where id = '${APPROVAL_MOTION_SINGLE}';`);
   asUser(MEMBER_USER, `
     insert into public.approval_requests (id, committee_id, motion_id, opened_by_member_id)
-    values ('${APPROVAL_REQUEST_NODECIDE}', '${COMMITTEE_A}', '${APPROVAL_MOTION_NODECIDE}', '${MEMBER_MEMBER}');
+    values ('${APPROVAL_REQUEST_SINGLE}', '${COMMITTEE_A}', '${APPROVAL_MOTION_SINGLE}', '${MEMBER_MEMBER}');
   `);
   asUser(ADMIN_USER, `
     insert into public.approval_responses (committee_id, approval_request_id, member_id, response)
-    values ('${COMMITTEE_A}', '${APPROVAL_REQUEST_NODECIDE}', '${ADMIN_MEMBER}', 'approve');
+    values ('${COMMITTEE_A}', '${APPROVAL_REQUEST_SINGLE}', '${ADMIN_MEMBER}', 'approve');
   `);
-  const notDecidable = asUser(
-    MEMBER_USER,
-    `update public.motions set status = 'decided' where id = '${APPROVAL_MOTION_NODECIDE}';`,
-    { allowFailure: true },
-  );
-  assert.notEqual(notDecidable.status, 0);
-  assert.match(notDecidable.stderr, /cannot be decided yet/i);
+  asUser(MEMBER_USER, `update public.motions set status = 'decided' where id = '${APPROVAL_MOTION_SINGLE}';`);
   assert.equal(
-    asUser(MEMBER_USER, `select status from public.motions where id = '${APPROVAL_MOTION_NODECIDE}';`).stdout.trim(),
-    "open",
+    asUser(MEMBER_USER, `select status from public.motions where id = '${APPROVAL_MOTION_SINGLE}';`).stdout.trim(),
+    "decided",
+  );
+  assert.equal(
+    asUser(MEMBER_USER, `select outcome from public.motions where id = '${APPROVAL_MOTION_SINGLE}';`).stdout.trim(),
+    "passed",
   );
 
   // An open motion with a request and no responses yet, reused for isolation
@@ -467,10 +465,12 @@ try {
     "0",
   );
 
-  // The existing bare open->decided motion (no approval_request) keeps outcome NULL.
+  // The existing bare open->decided motion (no approval_request) records 'failed':
+  // zero votes cast means approvals (0) is not greater than rejections (0). No
+  // decided motion is left with a NULL outcome.
   assert.equal(
-    asUser(MEMBER_USER, `select coalesce(outcome::text, 'none') from public.motions where id = '${MOTION_ONE}';`).stdout.trim(),
-    "none",
+    asUser(MEMBER_USER, `select outcome::text from public.motions where id = '${MOTION_ONE}';`).stdout.trim(),
+    "failed",
   );
 
   // No DELETE policies (and no DELETE grant) => fail-closed: rows survive.
