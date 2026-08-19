@@ -5,6 +5,7 @@ import {
   cards as fallbackCards,
   documents as fallbackDocuments,
   members as fallbackMembers,
+  motions as fallbackMotions,
   projects as fallbackProjects,
   type AuditEvent,
   type BudgetLine,
@@ -15,6 +16,7 @@ import {
   type GovernanceCard,
   type InvoiceSummary,
   type Member,
+  type Motion,
   type Project,
   type QuoteReviewSummary,
   type VendorRecord,
@@ -28,6 +30,7 @@ import type {
   Database,
   DocumentStatusDb,
   Json,
+  MotionStatusDb,
   ProjectStatusDb,
   VisibilityLevel,
   VoteValue,
@@ -43,6 +46,7 @@ export interface StrataAppData {
     member: CurrentMember | null;
   };
   cards: GovernanceCard[];
+  motions: Motion[];
   documents: DocumentRecord[];
   projects: Project[];
   vendors: VendorRecord[];
@@ -145,8 +149,23 @@ type AuditQueryRow = {
   target: string;
   created_at: string;
   card_id: string | null;
+  motion_id: string | null;
   user_id: string | null;
   metadata: unknown;
+};
+
+type MotionQueryRow = {
+  id: string;
+  title: string;
+  context: string;
+  status: MotionStatusDb;
+  creator_member_id: string | null;
+  created_at: string;
+  updated_at: string;
+  opened_at: string | null;
+  decided_at: string | null;
+  withdrawn_at: string | null;
+  creator?: { full_name: string | null } | null;
 };
 
 type AccountQueryRow = {
@@ -244,6 +263,7 @@ export const fallbackAppData: StrataAppData = {
     member: null,
   },
   cards: fallbackCards,
+  motions: fallbackMotions,
   documents: fallbackDocuments,
   projects: fallbackProjects,
   vendors: [],
@@ -300,6 +320,30 @@ const projectStatusMap: Record<ProjectStatusDb, Project["status"]> = {
   needs_decision: "Needs decision",
   resolved: "On track",
 };
+
+const motionStatusMap: Record<MotionStatusDb, Motion["status"]> = {
+  draft: "Draft",
+  open: "Open",
+  decided: "Decided",
+  withdrawn: "Withdrawn",
+};
+
+function mapMotion(row: MotionQueryRow, activity: AuditEvent[]): Motion {
+  return {
+    id: row.id,
+    title: row.title,
+    context: row.context,
+    status: motionStatusMap[row.status],
+    statusValue: row.status,
+    creator: row.creator?.full_name ?? "Committee",
+    created: formatDateTime(row.created_at),
+    updated: formatDateTime(row.updated_at),
+    openedAt: row.opened_at ? formatDateTime(row.opened_at) : undefined,
+    decidedAt: row.decided_at ? formatDateTime(row.decided_at) : undefined,
+    withdrawnAt: row.withdrawn_at ? formatDateTime(row.withdrawn_at) : undefined,
+    audit: activity.filter((event) => event.motionId === row.id),
+  };
+}
 
 function formatDateTime(value: string | null | undefined) {
   if (!value) {
@@ -662,6 +706,7 @@ function mapAudit(row: AuditQueryRow): AuditEvent {
     target: row.target,
     time: formatDateTime(row.created_at),
     cardId: row.card_id ?? undefined,
+    motionId: row.motion_id ?? undefined,
     detail: aiDetail || undefined,
   };
 }
@@ -720,6 +765,7 @@ export async function getStrataAppData(accessToken?: string): Promise<StrataAppD
         member: null,
       },
       cards: [],
+      motions: [],
       documents: [],
       projects: [],
       vendors: [],
@@ -750,6 +796,7 @@ export async function getStrataAppData(accessToken?: string): Promise<StrataAppD
     invoicesResult,
     quoteReviewsResult,
     membersResult,
+    motionsResult,
   ] = await Promise.all([
     supabase
       .from("cards")
@@ -819,6 +866,14 @@ export async function getStrataAppData(accessToken?: string): Promise<StrataAppD
       .eq("committee_id", member.committee_id)
       .order("full_name")
       .limit(100),
+    supabase
+      .from("motions")
+      .select(
+        "id,title,context,status,creator_member_id,created_at,updated_at,opened_at,decided_at,withdrawn_at,creator:members!motions_creator_member_id_fkey(full_name)",
+      )
+      .eq("committee_id", member.committee_id)
+      .order("updated_at", { ascending: false })
+      .limit(30),
   ]);
 
   if (
@@ -836,7 +891,8 @@ export async function getStrataAppData(accessToken?: string): Promise<StrataAppD
     vendorsResult.error ||
     invoicesResult.error ||
     quoteReviewsResult.error ||
-    membersResult.error
+    membersResult.error ||
+    motionsResult.error
   ) {
     throw upstreamUnavailable("SUPABASE_APP_DATA_QUERY_FAILED");
   }
@@ -856,7 +912,11 @@ export async function getStrataAppData(accessToken?: string): Promise<StrataAppD
   const supabaseInvoices = (invoicesResult.data ?? []) as unknown as InvoiceQueryRow[];
   const supabaseQuoteReviews = (quoteReviewsResult.data ?? []) as unknown as QuoteReviewQueryRow[];
   const supabaseMembers = (membersResult.data ?? []) as unknown as MemberQueryRow[];
+  const supabaseMotions = (motionsResult.data ?? []) as unknown as MotionQueryRow[];
   const activity = supabaseActivity.map(mapAudit);
+  const motions = supabaseMotions.length
+    ? supabaseMotions.map((motion) => mapMotion(motion, activity))
+    : fallbackMotions;
   const cards = supabaseCards.map((card) => {
     const mapped = mapCard(card, supabaseDocuments, supabaseAttachments);
     return {
@@ -899,6 +959,7 @@ export async function getStrataAppData(accessToken?: string): Promise<StrataAppD
       member,
     },
     cards,
+    motions,
     documents: supabaseDocuments.map((document) =>
       mapDocument(document, supabaseCards, supabaseProjects, supabaseAttachments),
     ),

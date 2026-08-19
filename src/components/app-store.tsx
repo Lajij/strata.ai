@@ -7,6 +7,7 @@ import { mapStrataDataToBuildingPlatform } from "@/lib/building-platform-data"
 import type { BuildingPlatformData } from "@/lib/building-platform-data"
 import type { StrataAppData } from "@/lib/strata-app-data"
 import type { ActivityItem, Card, DocItem, NavKey, Person } from "@/lib/types"
+import type { Motion } from "@/lib/strata-data"
 
 interface AppStore {
   dataSource: StrataAppData["source"]
@@ -32,6 +33,12 @@ interface AppStore {
   closeCard: () => void
   createOpen: boolean
   setCreateOpen: (open: boolean) => void
+  motions: Motion[]
+  selectedMotionId: string | null
+  openMotion: (id: string) => void
+  closeMotion: () => void
+  motionCreateOpen: boolean
+  setMotionCreateOpen: (open: boolean) => void
   assistantOpen: boolean
   setAssistantOpen: (open: boolean) => void
 }
@@ -50,6 +57,7 @@ const fallbackData: BuildingPlatformData = {
     role: "Building manager",
   },
   cards: initialCards,
+  motions: [],
   people,
   documents,
   activity,
@@ -71,9 +79,12 @@ export function AppStoreProvider({
     [initialData],
   )
   const [cards, setCards] = React.useState<Card[]>(platformData.cards)
+  const [motions, setMotions] = React.useState<Motion[]>(platformData.motions)
   const [page, setPage] = React.useState<NavKey>("dashboard")
   const [selectedCardId, setSelectedCardId] = React.useState<string | null>(null)
   const [createOpen, setCreateOpen] = React.useState(false)
+  const [selectedMotionId, setSelectedMotionId] = React.useState<string | null>(null)
+  const [motionCreateOpen, setMotionCreateOpen] = React.useState(false)
   const [assistantOpen, setAssistantOpen] = React.useState(false)
 
   const refreshData = React.useCallback(async () => {
@@ -82,8 +93,12 @@ export function AppStoreProvider({
     if (nextData) {
       const refreshed = mapStrataDataToBuildingPlatform(nextData)
       setCards(refreshed.cards)
+      setMotions(refreshed.motions)
       setSelectedCardId((currentId) =>
         currentId && refreshed.cards.some((card) => card.id === currentId) ? currentId : null,
+      )
+      setSelectedMotionId((currentId) =>
+        currentId && refreshed.motions.some((motion) => motion.id === currentId) ? currentId : null,
       )
     }
 
@@ -92,6 +107,8 @@ export function AppStoreProvider({
 
   const openCard = React.useCallback((id: string) => setSelectedCardId(id), [])
   const closeCard = React.useCallback(() => setSelectedCardId(null), [])
+  const openMotion = React.useCallback((id: string) => setSelectedMotionId(id), [])
+  const closeMotion = React.useCallback(() => setSelectedMotionId(null), [])
 
   const value = React.useMemo<AppStore>(
     () => ({
@@ -99,6 +116,7 @@ export function AppStoreProvider({
       buildingName: platformData.buildingName,
       currentUser: platformData.currentUser,
       cards,
+      motions,
       people: platformData.people,
       documents: platformData.documents,
       activity: platformData.activity,
@@ -122,6 +140,11 @@ export function AppStoreProvider({
       closeCard,
       createOpen,
       setCreateOpen,
+      selectedMotionId,
+      openMotion,
+      closeMotion,
+      motionCreateOpen,
+      setMotionCreateOpen,
       assistantOpen,
       setAssistantOpen,
     }),
@@ -131,11 +154,16 @@ export function AppStoreProvider({
       refreshData,
       refreshStatus,
       cards,
+      motions,
       page,
       selectedCardId,
       openCard,
       closeCard,
       createOpen,
+      selectedMotionId,
+      openMotion,
+      closeMotion,
+      motionCreateOpen,
       assistantOpen,
     ],
   )

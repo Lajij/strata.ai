@@ -92,6 +92,7 @@ export async function cleanupE2eRecords(
   // Collect dependent ids before deleting parents.
   const cardIds = await collectIds(service, "cards", "title", prefix);
   const documentIds = await collectIds(service, "documents", "title", prefix);
+  const motionIds = await collectIds(service, "motions", "title", prefix);
 
   // Proposals carry no marker text field; derive marker proposal ids from the
   // marker card set so their votes/conditions can be removed first.
@@ -108,6 +109,9 @@ export async function cleanupE2eRecords(
   await safeDelete(service, "audit_log", async (from) => from.delete().ilike("target", pattern));
   if (cardIds.length > 0) {
     await safeDelete(service, "audit_log", async (from) => from.delete().in("card_id", cardIds));
+  }
+  if (motionIds.length > 0) {
+    await safeDelete(service, "audit_log", async (from) => from.delete().in("motion_id", motionIds));
   }
 
   // Child records referencing marker cards/proposals/documents.
@@ -139,6 +143,7 @@ export async function cleanupE2eRecords(
   }
   await safeDelete(service, "invoices", async (from) => from.delete().ilike("invoice_number", pattern));
   await safeDelete(service, "documents", async (from) => from.delete().ilike("title", pattern));
+  await safeDelete(service, "motions", async (from) => from.delete().ilike("title", pattern));
   await safeDelete(service, "cards", async (from) => from.delete().ilike("title", pattern));
   await safeDelete(service, "vendors", async (from) => from.delete().ilike("name", pattern));
 

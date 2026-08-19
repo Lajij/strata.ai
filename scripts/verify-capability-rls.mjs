@@ -25,6 +25,9 @@ const MEMBER_MEMBER = "bbbbbbbb-0000-4000-8000-000000000003";
 const READ_ONLY_MEMBER = "bbbbbbbb-0000-4000-8000-000000000004";
 const PUBLIC_CARD = "cccccccc-0000-4000-8000-000000000001";
 const HIDDEN_INCIDENT = "dddddddd-0000-4000-8000-000000000001";
+const MOTION_ONE = "cccccccc-0000-4000-8000-000000000010";
+const MOTION_TWO = "cccccccc-0000-4000-8000-000000000011";
+const MOTION_AUDIT = "cccccccc-0000-4000-8000-000000000012";
 let started = false;
 
 function run(command, args, { allowFailure = false, input } = {}) {
@@ -206,7 +209,92 @@ try {
     "1",
   );
 
-  console.log("Portable Postgres RLS capability verification passed (six personas, cross-committee, attribution, finance, parent visibility, member-delete denial). ");
+  // Issue #39: motion lifecycle draft -> open -> decided | withdrawn.
+  // An eligible member creates a draft motion; the guard_motion trigger forces
+  // draft on insert and the INSERT policy pins attribution to the caller.
+  asUser(MEMBER_USER, `
+    insert into public.motions (id, committee_id, title, context, creator_member_id)
+    values ('${MOTION_ONE}', '${COMMITTEE_A}', 'Capability motion one', 'Draft lifecycle motion', '${MEMBER_MEMBER}');
+  `);
+  assert.equal(
+    asUser(MEMBER_USER, `select status from public.motions where id = '${MOTION_ONE}';`).stdout.trim(),
+    "draft",
+  );
+
+  // Only the three legal transitions are permitted and they stamp timestamps.
+  asUser(MEMBER_USER, `update public.motions set status = 'open' where id = '${MOTION_ONE}';`);
+  asUser(MEMBER_USER, `update public.motions set status = 'decided' where id = '${MOTION_ONE}';`);
+  const decidedMotion = asUser(
+    MEMBER_USER,
+    `select status || '|' || (opened_at is not null)::text || '|' || (decided_at is not null)::text from public.motions where id = '${MOTION_ONE}';`,
+  ).stdout.trim();
+  assert.equal(decidedMotion, "decided|true|true");
+
+  // Terminal motions are immutable: any UPDATE of a decided motion raises.
+  const decidedEdit = asUser(
+    MEMBER_USER,
+    `update public.motions set status = 'withdrawn' where id = '${MOTION_ONE}';`,
+    { allowFailure: true },
+  );
+  assert.notEqual(decidedEdit.status, 0);
+  assert.match(decidedEdit.stderr, /cannot be edited/);
+
+  // Illegal transitions (draft -> decided) are rejected by the trigger.
+  asUser(MEMBER_USER, `
+    insert into public.motions (id, committee_id, title, context, creator_member_id)
+    values ('${MOTION_TWO}', '${COMMITTEE_A}', 'Capability motion two', 'Illegal transition probe', '${MEMBER_MEMBER}');
+  `);
+  const illegalTransition = asUser(
+    MEMBER_USER,
+    `update public.motions set status = 'decided' where id = '${MOTION_TWO}';`,
+    { allowFailure: true },
+  );
+  assert.notEqual(illegalTransition.status, 0);
+  assert.match(illegalTransition.stderr, /Illegal motion state transition/);
+
+  // Cross-committee isolation: a Committee B member cannot read Committee A motions.
+  assert.equal(
+    asUser(CROSS_USER, `select count(*) from public.motions where id = '${MOTION_ONE}';`).stdout.trim(),
+    "0",
+  );
+
+  // read_only members cannot create or advance motions. INSERT is denied by the
+  // RLS policy (raises); UPDATE is a silent no-op (status unchanged).
+  const readOnlyMotionInsert = asUser(READ_ONLY_USER, `
+    insert into public.motions (id, committee_id, title, context, creator_member_id)
+    values ('${MOTION_ONE}', '${COMMITTEE_A}', 'Read only motion', 'Blocked', '${READ_ONLY_MEMBER}');
+  `, { allowFailure: true });
+  assert.notEqual(readOnlyMotionInsert.status, 0);
+  assert.match(readOnlyMotionInsert.stderr, /row-level security policy/);
+  const readOnlyAdvance = asUser(
+    READ_ONLY_USER,
+    `update public.motions set status = 'withdrawn' where id = '${MOTION_ONE}';`,
+  );
+  assert.equal(readOnlyAdvance.status, 0);
+  assert.equal(
+    asUser(MEMBER_USER, `select status from public.motions where id = '${MOTION_ONE}';`).stdout.trim(),
+    "decided",
+  );
+
+  // Motion audit rows ride the existing card_id-is-null audit_log branch: the
+  // additive motion_id column is stored and admitted with no policy change.
+  asUser(MEMBER_USER, `
+    insert into public.audit_log (id, committee_id, card_id, motion_id, user_id, action, target)
+    values ('${MOTION_AUDIT}', '${COMMITTEE_A}', null, '${MOTION_ONE}', '${MEMBER_USER}', 'Advanced motion', 'draft->open');
+  `);
+  assert.equal(
+    psql(`select motion_id::text from public.audit_log where id = '${MOTION_AUDIT}';`).stdout.trim(),
+    MOTION_ONE,
+  );
+
+  // No DELETE policy (and no DELETE grant) => fail-closed: the motion survives.
+  asUser(MEMBER_USER, `delete from public.motions where id = '${MOTION_ONE}';`, { allowFailure: true });
+  assert.equal(
+    psql(`select count(*) from public.motions where id = '${MOTION_ONE}';`).stdout.trim(),
+    "1",
+  );
+
+  console.log("Portable Postgres RLS capability verification passed (six personas, cross-committee, attribution, finance, parent visibility, member-delete denial, motion lifecycle). ");
   console.log("This substitutes only the unavailable vector column type; exact Supabase replay remains a separate gate.");
 } finally {
   if (started) {

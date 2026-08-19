@@ -32,6 +32,7 @@ export type CardTypeDb =
 export type VoteValue = "yes" | "no" | "abstain";
 export type DocumentStatusDb = "uploaded" | "needs_extraction" | "markdown_ready" | "indexed" | "review_required";
 export type ProjectStatusDb = "on_track" | "at_risk" | "needs_decision" | "resolved";
+export type MotionStatusDb = "draft" | "open" | "decided" | "withdrawn";
 
 export interface Database {
   public: {
@@ -114,6 +115,34 @@ export interface Database {
           visibility?: VisibilityLevel;
           creator_member_id?: string | null;
           linked_project_id?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        }
+      >;
+      motions: Table<
+        {
+          id: string;
+          committee_id: string;
+          title: string;
+          context: string;
+          status: MotionStatusDb;
+          creator_member_id: string | null;
+          opened_at: string | null;
+          decided_at: string | null;
+          withdrawn_at: string | null;
+          created_at: string;
+          updated_at: string;
+        },
+        {
+          id?: string;
+          committee_id: string;
+          title: string;
+          context?: string;
+          status?: MotionStatusDb;
+          creator_member_id?: string | null;
+          opened_at?: string | null;
+          decided_at?: string | null;
+          withdrawn_at?: string | null;
           created_at?: string;
           updated_at?: string;
         }
@@ -499,6 +528,7 @@ export interface Database {
           id: string;
           committee_id: string;
           card_id: string | null;
+          motion_id: string | null;
           user_id: string | null;
           action: string;
           target: string;
@@ -509,6 +539,7 @@ export interface Database {
           id?: string;
           committee_id: string;
           card_id?: string | null;
+          motion_id?: string | null;
           user_id?: string | null;
           action: string;
           target: string;
@@ -594,6 +625,7 @@ export interface Database {
       vote_value: VoteValue;
       document_status: DocumentStatusDb;
       project_status: ProjectStatusDb;
+      motion_status: MotionStatusDb;
     };
     CompositeTypes: Record<string, never>;
   };
