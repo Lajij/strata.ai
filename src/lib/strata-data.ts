@@ -578,6 +578,17 @@ export const motions: Motion[] = [
     updated: "12 Jun 2026 16:30",
     openedAt: "11 Jun 2026 09:00",
     decidedAt: "12 Jun 2026 16:30",
+    outcome: "Passed",
+    outcomeValue: "passed",
+    approval: {
+      openedBy: "Deborah Frack",
+      approvals: 2,
+      rejections: 0,
+      responses: [
+        { member: "Ric Spooner", response: "approve", time: "11 Jun 2026 14:20" },
+        { member: "JJ Lecocq", response: "approve", time: "12 Jun 2026 10:05" },
+      ],
+    },
     audit: [],
   },
 ];

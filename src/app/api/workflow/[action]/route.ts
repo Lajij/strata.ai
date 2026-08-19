@@ -302,7 +302,8 @@ export async function POST(request: NextRequest, context: { params: Promise<{ ac
       if (updateError) {
         // guard_motion raises on illegal transitions or terminal-state edits.
         // (guard_motion_outcome no longer raises: it assigns passed/failed from
-        // votes cast when an approval request exists, or NULL on a bare decide.)
+        // the votes cast for every open->decided transition. A bare decide with
+        // no votes records 'failed'; no decided motion is left NULL.)
         throw new PublicRequestError(
           "ILLEGAL_MOTION_TRANSITION",
           "The motion cannot move to that state",

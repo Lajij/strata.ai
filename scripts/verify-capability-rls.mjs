@@ -465,10 +465,12 @@ try {
     "0",
   );
 
-  // The existing bare open->decided motion (no approval_request) keeps outcome NULL.
+  // The existing bare open->decided motion (no approval_request) records 'failed':
+  // zero votes cast means approvals (0) is not greater than rejections (0). No
+  // decided motion is left with a NULL outcome.
   assert.equal(
-    asUser(MEMBER_USER, `select coalesce(outcome::text, 'none') from public.motions where id = '${MOTION_ONE}';`).stdout.trim(),
-    "none",
+    asUser(MEMBER_USER, `select outcome::text from public.motions where id = '${MOTION_ONE}';`).stdout.trim(),
+    "failed",
   );
 
   // No DELETE policies (and no DELETE grant) => fail-closed: rows survive.

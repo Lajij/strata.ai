@@ -42,12 +42,14 @@ create index if not exists approval_responses_request_idx
 -- When an approval_request exists it RECOMPUTES outcome from recorded, attributed
 -- responses (caller cannot forge passed/failed): PASSED iff approvals > rejections
 -- among the votes cast; FAILED otherwise. The eligible-member count is never the
--- majority denominator. Any vote tally produces a definitive outcome (never NULL
--- when an approval request exists); the only NULL-outcome path is the bare decide
--- with no approval request (below). The transition legality itself is owned by the
--- existing motions_guard trigger; this guard only touches the outcome column and is
--- a no-op for every transition that is not open->decided, so trigger firing order
--- is irrelevant.
+-- majority denominator. Every open->decided transition records a definitive outcome
+-- (passed or failed); a bare decide with no approval request has zero votes cast
+-- (approvals not greater than rejections) and records failed, so no decided motion
+-- is left with a NULL outcome. NULL outcomes remain only for motions that are not
+-- decided (draft / open / withdrawn). The transition legality itself is owned by
+-- the existing motions_guard trigger; this guard only touches the outcome column
+-- and is a no-op for every transition that is not open->decided, so trigger firing
+-- order is irrelevant.
 create or replace function app_private.guard_motion_outcome()
 returns trigger
 language plpgsql
@@ -67,11 +69,6 @@ begin
   from public.approval_requests ar
   where ar.motion_id = new.id
   limit 1;
-
-  if request_id is null then
-    new.outcome := null;
-    return new;
-  end if;
 
   select count(*) into approvals
   from public.approval_responses r
