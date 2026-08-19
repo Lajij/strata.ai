@@ -227,8 +227,6 @@ export interface ApprovalSummary {
   openedBy?: string;
   approvals: number;
   rejections: number;
-  eligible: number;
-  threshold: number;
   responses: ApprovalResponse[];
 }
 

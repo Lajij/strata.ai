@@ -40,13 +40,14 @@ create index if not exists approval_responses_request_idx
 -- Fail-closed outcome guard. SECURITY INVOKER (mirrors guard_motion): fires for
 -- every role (triggers are not bypassed by BYPASSRLS). Acts only on open->decided.
 -- When an approval_request exists it RECOMPUTES outcome from recorded, attributed
--- responses (caller cannot forge passed/failed): PASSED iff 2*approvals>eligible;
--- FAILED iff 2*rejections>=eligible (unwinnable); else RAISE so the motion cannot
--- be decided yet. Motions decided with no approval_request keep outcome NULL
--- (unchanged bare-decide path). The transition legality itself is owned by the
--- existing motions_guard trigger; this guard only touches the outcome column and
--- is a no-op for every transition that is not open->decided, so trigger firing
--- order is irrelevant.
+-- responses (caller cannot forge passed/failed): PASSED iff approvals > rejections
+-- among the votes cast; FAILED otherwise. The eligible-member count is never the
+-- majority denominator. Any vote tally produces a definitive outcome (never NULL
+-- when an approval request exists); the only NULL-outcome path is the bare decide
+-- with no approval request (below). The transition legality itself is owned by the
+-- existing motions_guard trigger; this guard only touches the outcome column and is
+-- a no-op for every transition that is not open->decided, so trigger firing order
+-- is irrelevant.
 create or replace function app_private.guard_motion_outcome()
 returns trigger
 language plpgsql
@@ -55,7 +56,6 @@ set search_path = ''
 as $$
 declare
   request_id uuid;
-  eligible int;
   approvals int;
   rejections int;
 begin
@@ -73,12 +73,6 @@ begin
     return new;
   end if;
 
-  select count(*) into eligible
-  from public.members m
-  where m.committee_id = new.committee_id
-    and m.status = 'active'
-    and m.access_level <> 'read_only';
-
   select count(*) into approvals
   from public.approval_responses r
   where r.approval_request_id = request_id
@@ -89,12 +83,10 @@ begin
   where r.approval_request_id = request_id
     and r.response = 'reject';
 
-  if 2 * approvals > eligible then
+  if approvals > rejections then
     new.outcome := 'passed';
-  elsif 2 * rejections >= eligible then
-    new.outcome := 'failed';
   else
-    raise exception 'Motion % cannot be decided yet: majority not reached and not yet unwinnable', new.id;
+    new.outcome := 'failed';
   end if;
 
   return new;
