@@ -483,6 +483,7 @@ const appData = read("src/lib/strata-app-data.ts");
 assertContains(appData, 'sourceDetail: "Explicit synthetic fixture mode"', "explicit fixture read label");
 assertContains(appData, 'throw upstreamUnavailable("SUPABASE_APP_DATA_QUERY_FAILED")', "app-data upstream denial");
 assertNotContains(appData, "Supabase query failed; using local fallback data", "query-failure fixture substitution");
+assertNotContains(appData, ": fallbackMotions;", "live motions fixture substitution");
 
 const aiContext = read("src/lib/ai/context.ts");
 assertContains(aiContext, 'throw upstreamUnavailable("SUPABASE_AI_CONTEXT_QUERY_FAILED")', "AI context upstream denial");

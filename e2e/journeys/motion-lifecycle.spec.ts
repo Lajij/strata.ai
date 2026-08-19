@@ -87,6 +87,7 @@ test.describe("motion lifecycle", () => {
       const crossBody = await crossData.json();
       const crossTitles = (crossBody.motions ?? []).map((item: { title: string }) => item.title);
       expect(crossTitles).not.toContain(title);
+      expect(crossBody.motions ?? []).toEqual([]);
 
       // ...and a cross-committee member cannot advance it (MOTION_NOT_FOUND).
       const crossAdvance = await cross.post("/api/workflow/advance-motion", {
